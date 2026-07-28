@@ -23,6 +23,8 @@ export async function POST(req) {
     };
     if (b.kategorie) props["KATEGORIE"] = { select: { name: b.kategorie } };
     if (b.dopad) props["DOPAD"] = { select: { name: b.dopad } };
+    if (b.jednotka) props["JEDNOTKA"] = { select: { name: b.jednotka } };
+    if (b.obdobi) props["OBDOBÍ"] = { date: { start: b.obdobi } };
     if (b.verdict) props["VÝSLEDEK"] = { select: { name: b.verdict } };
     if (b.aktual !== null && b.aktual !== undefined && b.aktual !== "")
       props["AKTUÁL"] = { number: Number(b.aktual) };

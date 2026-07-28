@@ -8,9 +8,18 @@ const SECTIONS = [
   "JOLTS", "PMI", "HDP", "RETAIL SALES", "SPOTŘEBITELSKÁ DŮVĚRA", "NEMOVITOSTI",
 ];
 
+// "-11 530" / "- 8 775" -> -11530 / -8775
+function parseNum(s) {
+  if (s === null || s === undefined) return null;
+  const clean = String(s).replace(/\s| /g, "").replace(",", ".");
+  if (clean === "" || clean === "-") return null;
+  const n = Number(clean);
+  return isNaN(n) ? null : n;
+}
+
 export async function GET() {
   try {
-    const [celkovy, weekly, fundament] = await Promise.all([
+    const [celkovy, weekly, fundament, sazby, sentiment] = await Promise.all([
       queryDatabase(DB.CELKOVY),
       queryDatabase(DB.WEEKLY, {
         sorts: [{ property: "DATUM", direction: "descending" }],
@@ -18,6 +27,8 @@ export async function GET() {
       queryDatabase(DB.FUNDAMENT, {
         sorts: [{ property: "DATUM", direction: "descending" }],
       }),
+      queryDatabase(DB.SAZBY),
+      queryDatabase(DB.SENTIMENT),
     ]);
 
     const overview = celkovy.map((p) => {
@@ -46,25 +57,59 @@ export async function GET() {
       };
     });
 
-    const events = fundament.slice(0, 120).map((p) => {
+    const events = fundament.slice(0, 400).map((p) => {
       const P = p.properties;
       const a = val.number(P["AKTUÁL"]);
       const o = val.number(P["OČEKÁVÁNÍ"]);
+      const prev = val.number(P["PŘEDCHOZÍ"]);
       return {
         info: val.title(P["INFO"]),
         cur: curFromRelation(val.relation(P["MĚNA"])),
         date: val.date(P["DATUM"]),
+        obdobi: val.date(P["OBDOBÍ"]),
         verdict: val.select(P["VÝSLEDEK"]),
         kategorie: val.select(P["KATEGORIE"]),
         dopad: val.select(P["DOPAD"]),
+        jednotka: val.select(P["JEDNOTKA"]),
         aktual: a,
         ocekavani: o,
-        predchozi: val.number(P["PŘEDCHOZÍ"]),
+        predchozi: prev,
         prekvapeni: a !== null && o !== null ? Math.round((a - o) * 1000) / 1000 : null,
+        zmena: a !== null && prev !== null ? Math.round((a - prev) * 1000) / 1000 : null,
       };
     });
 
-    return Response.json({ overview, weeks, events, sections: SECTIONS });
+    const rates = sazby.map((p) => {
+      const P = p.properties;
+      const ocek = val.number(P["Očekávání"]);
+      const pred = val.number(P["Předchozí Výsledek"]);
+      return {
+        cur: curFromRelation(val.relation(P["MĚNA"])),
+        ocekavani: ocek,
+        predchozi: pred,
+        zmena: ocek !== null && pred !== null ? Math.round((ocek - pred) * 1e6) / 1e6 : null,
+        sance: val.number(P["Procentní šance"]),
+        doKonceRoku: val.text(P["Snížení do konce roku"]),
+        pocetSnizeni: val.text(P["Počet ročních snížení"]),
+        duvod: val.title(P["Důvod změny a předchozí hodnota"]),
+        date: val.date(P["Datum"]),
+      };
+    }).filter((r) => r.cur);
+
+    const positions = sentiment.map((p) => {
+      const P = p.properties;
+      return {
+        cur: curFromRelation(val.relation(P["Měna"] || P["MĚNA"])),
+        long: parseNum(val.title(P["Long"])),
+        short: parseNum(val.text(P["Short"])),
+        spread: parseNum(val.text(P["Spread"])),
+        shortTerm: val.select(P["Short Term Výsledek"]),
+        longTerm: val.select(P["Long Term Výsledek"]),
+        date: val.date(P["Datum"]),
+      };
+    }).filter((r) => r.cur);
+
+    return Response.json({ overview, weeks, events, rates, positions, sections: SECTIONS });
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 });
   }
