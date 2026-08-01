@@ -169,13 +169,23 @@ function Cards({ rows, onOpen, lastEvent = {} }) {
 const pct = (n) => (n === null || n === undefined ? "—" : (n * 100).toFixed(2).replace(".", ",") + " %");
 const num = (n) => (n === null || n === undefined ? "—" : n.toLocaleString("cs-CZ"));
 
-// z více záznamů na měnu nech jen ten nejnovější
+// Z více záznamů na měnu nech ten nejnovější, ale ne z budoucnosti —
+// budoucí datum bývá naplánované zasedání, ne aktuální tržní ocenění.
+// Když má měna jen budoucí záznamy, vezmi ten nejbližší.
 export function latestPerCur(rows) {
+  const dnes = new Date().toISOString().slice(0, 10);
   const best = {};
   rows.forEach((r) => {
     if (!r.cur) return;
+    const d = String(r.date || "").slice(0, 10);
     const cur = best[r.cur];
-    if (!cur || String(r.date || "") > String(cur.date || "")) best[r.cur] = r;
+    if (!cur) { best[r.cur] = r; return; }
+    const cd = String(cur.date || "").slice(0, 10);
+    const rMinuly = d <= dnes, cMinuly = cd <= dnes;
+    // minulý/dnešní záznam má přednost před budoucím
+    if (rMinuly && !cMinuly) { best[r.cur] = r; return; }
+    if (!rMinuly && cMinuly) return;
+    if (d > cd) best[r.cur] = r;
   });
   return Object.values(best);
 }
@@ -228,24 +238,20 @@ function Rates({ rates, positions }) {
                     <td style={{ color: "var(--ink-2)" }}>{r.doKonceRoku || "—"}</td>
                     <td style={{ color: "var(--ink-3)", fontSize: 12.5 }}>{czDate(r.date)}</td>
                   </tr>
-                  {isOpen && (
-                    <tr>
-                      <td colSpan={7} style={{ textAlign: "left", background: "#fcfcfb", padding: "14px 16px" }}>
+                  {(filled(r.duvod) || filled(r.pocetSnizeni)) && (
+                    <tr className="note-row" onClick={() => setOpenRow(isOpen ? null : r.cur)}>
+                      <td colSpan={7}>
                         {filled(r.pocetSnizeni) && (
-                          <div style={{ fontSize: 13, marginBottom: filled(r.duvod) ? 9 : 0 }}>
-                            <b style={{ color: "var(--ink-3)", fontWeight: 620 }}>Počet ročních snížení: </b>
-                            {r.pocetSnizeni}
+                          <div className="note-meta">
+                            Počet ročních snížení: <b>{r.pocetSnizeni}</b>
                           </div>
                         )}
-                        {filled(r.duvod) ? (
-                          <div style={{ fontSize: 13.5, lineHeight: 1.6, color: "var(--ink-2)", whiteSpace: "pre-wrap" }}>
-                            {r.duvod}
-                          </div>
-                        ) : !filled(r.pocetSnizeni) ? (
-                          <div style={{ fontSize: 13, color: "var(--none)", fontStyle: "italic" }}>
-                            Zatím bez poznámky. Doplnit ji můžeš v záložce „+ Zadat" nebo přímo v Notionu.
-                          </div>
-                        ) : null}
+                        {filled(r.duvod) && (
+                          <div className={"note-text" + (isOpen ? "" : " clamp")}>{r.duvod}</div>
+                        )}
+                        {filled(r.duvod) && r.duvod.length > 190 && (
+                          <span className="note-more">{isOpen ? "zobrazit méně" : "zobrazit celé"}</span>
+                        )}
                       </td>
                     </tr>
                   )}
