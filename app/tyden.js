@@ -5,11 +5,15 @@ import { FLAG, CUR_NAME, JEDNOTKY, czDate, denVTydnu, filled } from "./lib-ui";
 
 /* Naplánované události — ty, které ještě nemají vyplněnou aktuální hodnotu.
    Doplníš je rovnou tady a uloží se zpátky do Notionu. */
-// Kostra z kalendáře má krátký název z Forex Factory ("Core CPI Flash Estimate y/y").
-// Ručně psaný záznam má dlouhý popis. Podle toho poznáme, co ještě čeká na doplnění
-// a co už uživatel zpracoval po svém.
+// Kostra z kalendáře se pozná podle dvou věcí zároveň:
+//  1. má vyplněnou KATEGORII — import ji nastavuje vždy
+//  2. má krátký název z Forex Factory ("Core CPI Flash Estimate y/y")
+// Ručně psaná poznámka bývá bez kategorie nebo s dlouhým popisem, takže sem nespadne
+// a nebude se tvářit jako nedodělaná práce.
 const KOSTRA_MAX_DELKA = 90;
-const jeKostra = (e) => String(e.info || "").trim().length <= KOSTRA_MAX_DELKA;
+const jeKostra = (e) =>
+  !!(e.kategorie && String(e.kategorie).trim()) &&
+  String(e.info || "").trim().length <= KOSTRA_MAX_DELKA;
 
 export function Tyden({ events, onSaved }) {
   // "dnes" se počítá při každém načtení stránky, takže se seznam posouvá sám
