@@ -5,22 +5,30 @@ import { FLAG, CUR_NAME, JEDNOTKY, czDate, denVTydnu, filled } from "./lib-ui";
 
 /* Naplánované události — ty, které ještě nemají vyplněnou aktuální hodnotu.
    Doplníš je rovnou tady a uloží se zpátky do Notionu. */
+// Kostra z kalendáře má krátký název z Forex Factory ("Core CPI Flash Estimate y/y").
+// Ručně psaný záznam má dlouhý popis. Podle toho poznáme, co ještě čeká na doplnění
+// a co už uživatel zpracoval po svém.
+const KOSTRA_MAX_DELKA = 90;
+const jeKostra = (e) => String(e.info || "").trim().length <= KOSTRA_MAX_DELKA;
+
 export function Tyden({ events, onSaved }) {
   // "dnes" se počítá při každém načtení stránky, takže se seznam posouvá sám
   const dnes = new Date().toISOString().slice(0, 10);
-  const predMesicem = new Date(Date.now() - 31 * 864e5).toISOString().slice(0, 10);
-  const zaMesic = new Date(Date.now() + 31 * 864e5).toISOString().slice(0, 10);
+  const zaDvaTydny = new Date(Date.now() + 15 * 864e5).toISOString().slice(0, 10);
+  const predTydnem = new Date(Date.now() - 8 * 864e5).toISOString().slice(0, 10);
 
-  const bezHodnoty = events.filter((e) => e.aktual === null && e.date);
+  // Jen nevyplněné kostry z kalendáře. Vlastnoručně psané záznamy sem nepatří,
+  // i když nemají číslo v poli AKTUÁL — text v nich je hotová práce.
+  const bezHodnoty = events.filter((e) => e.aktual === null && e.date && jeKostra(e));
 
-  // K doplnění: událost už proběhla (nebo je dnes). Dřív hodnotu znát nemůžeme.
+  // K doplnění: událost už proběhla (nebo je dnes), ale ne dál než týden zpátky.
   const kDoplneni = bezHodnoty
-    .filter((e) => e.date.slice(0, 10) <= dnes && e.date.slice(0, 10) >= predMesicem)
+    .filter((e) => e.date.slice(0, 10) <= dnes && e.date.slice(0, 10) >= predTydnem)
     .sort((a, b) => String(b.date).localeCompare(String(a.date)));
 
   // Chystá se: teprve přijde. Jen na přehled, nedá se vyplnit.
   const chystaSe = bezHodnoty
-    .filter((e) => e.date.slice(0, 10) > dnes && e.date.slice(0, 10) <= zaMesic)
+    .filter((e) => e.date.slice(0, 10) > dnes && e.date.slice(0, 10) <= zaDvaTydny)
     .sort((a, b) => String(a.date).localeCompare(String(b.date)));
 
   const poDnech = (list) => {
