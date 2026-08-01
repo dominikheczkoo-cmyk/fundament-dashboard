@@ -2,10 +2,12 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  FLAG, PRIO, REST, KATEGORIE,
+  FLAG, CUR_NAME, MAIN_CUR, ALL_CUR, SENT_INSTR,
+  PRIO, REST, KATEGORIE, KAT_GROUPS, JEDNOTKY, KAT_JEDNOTKA,
   vClass, cClass, vLabel, vSym, czDate, shortDate, filled,
 } from "./lib-ui";
 import { LineChart, BarChart, fmt } from "./chart";
+import { Tyden } from "./tyden";
 
 export default function Page() {
   const [data, setData] = useState(null);
@@ -74,7 +76,7 @@ export default function Page() {
         <>
           <Strip data={data} onPick={(c) => { setTab("prehled"); setOpen(c); }} />
           <nav className="tabs">
-            {[["prehled","Přehled"],["grafy","Grafy"],["sazby","Sazby a sentiment"],["historie","Historie týdnů"],["udalosti","Události"],["zadat","+ Zadat"]]
+            {[["prehled","Přehled"],["tyden","Tento týden"],["grafy","Grafy"],["sazby","Sazby a sentiment"],["historie","Historie týdnů"],["udalosti","Události"],["zadat","+ Zadat"]]
               .map(([k, label]) => (
                 <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{label}</button>
               ))}
@@ -86,6 +88,7 @@ export default function Page() {
                       pos={latestPerCur(data.positions || []).find((r) => r.cur === open)}
                       onBack={() => setOpen(null)} />
             : <Cards rows={data.overview} onOpen={setOpen} />)}
+          {tab === "tyden" && <Tyden events={data.events} onSaved={load} />}
           {tab === "grafy" && <Charts events={data.events} rates={data.rates || []} positions={data.positions || []} />}
           {tab === "sazby" && <Rates rates={data.rates || []} positions={data.positions || []} />}
           {tab === "historie" && <Heat weeks={data.weeks} />}
@@ -319,14 +322,15 @@ function RateMatrix({ rates }) {
 
 /* ---------- záložka Grafy ---------- */
 const CHART_GROUPS = [
-  { key: "CPI", label: "Inflace", cats: ["CPI", "PPI"] },
-  { key: "PRACE", label: "Trh práce", cats: ["NFP", "Jobless Claims"] },
-  { key: "SAZBY", label: "Sazby", cats: ["Sazby"] },
-  { key: "RUST", label: "Růst", cats: ["HDP", "PMI", "Retail Sales"] },
+  { key: "CPI", label: "Inflace", cats: ["CPI", "CORE CPI", "TOKYO CPI", "TOKYO CORE CPI", "PPI", "CORE PPI", "PCE"] },
+  { key: "PRACE", label: "Trh práce", cats: ["UNEMPLOYMENT RATE", "EMPLOYMENT CHANGE", "UNEMPLOYMENT CHANGE", "NONFARM PAYROLLS", "ADP NFP", "ADP EMPLOYMENT CHANGE", "INITIAL JOBLESS CLAIMS", "JOLTS"] },
+  { key: "SAZBY", label: "Sazby", cats: ["INTEREST RATE", "FOMC"] },
+  { key: "RUST", label: "Růst a spotřeba", cats: ["GDP", "PMI", "RETAIL SALES", "CORE RETAIL SALES", "CONSUMER CONFIDENCE"] },
+  { key: "REALITY", label: "Nemovitosti", cats: ["BUILDING PERMITS", "HOUSING STARTS", "NEW HOME SALES", "EXISTING HOME SALES"] },
 ];
 
 function Charts({ events, rates, positions }) {
-  const curs = Object.keys(FLAG);
+  const curs = ALL_CUR;
   const [cur, setCur] = useState("EUR");
 
   const mine = events.filter((e) => e.cur === cur);
@@ -359,6 +363,7 @@ function Charts({ events, rates, positions }) {
         <span className="lbl">Měna:</span>
         {curs.map((c) => (
           <button key={c} className={"chip" + (cur === c ? " on" : "")} onClick={() => setCur(c)}
+                  title={CUR_NAME[c] || c}
                   style={cur === c ? { background: "var(--ink)", color: "#fff", borderColor: "var(--ink)" } : {}}>
             {FLAG[c]} {c}
           </button>
@@ -656,7 +661,7 @@ function RateForm({ onSaved }) {
         <div className="f">
           <label>Měna</label>
           <select value={f.cur} onChange={(e) => set("cur", e.target.value)}>
-            {Object.keys(FLAG).map((c) => <option key={c} value={c}>{FLAG[c]} {c}</option>)}
+            {MAIN_CUR.map((c) => <option key={c} value={c}>{FLAG[c]} {c}</option>)}
           </select>
         </div>
         <div className="f">
@@ -701,7 +706,7 @@ function RateForm({ onSaved }) {
 
 function SentimentForm({ onSaved }) {
   const today = new Date().toISOString().slice(0, 10);
-  const INSTR = [...Object.keys(FLAG), "XAU", "XAG", "Indexy"];
+  const INSTR = SENT_INSTR;
   const [f, setF] = useState({
     cur: "EUR", date: today, long: "", short: "", spread: "",
     shortTerm: "", longTerm: "",
@@ -813,7 +818,7 @@ function Form({ onSaved }) {
         <div className="f">
           <label>Měna</label>
           <select value={f.cur} onChange={(e) => set("cur", e.target.value)}>
-            {Object.keys(FLAG).map((c) => <option key={c} value={c}>{FLAG[c]} {c}</option>)}
+            {ALL_CUR.map((c) => <option key={c} value={c}>{FLAG[c]} {CUR_NAME[c] || c}</option>)}
           </select>
         </div>
         <div className="f">
@@ -822,21 +827,29 @@ function Form({ onSaved }) {
         </div>
         <div className="f">
           <label>Kategorie — povinná</label>
-          <select value={f.kategorie} onChange={(e) => set("kategorie", e.target.value)}
+          <select value={f.kategorie}
+                  onChange={(e) => {
+                    const k = e.target.value;
+                    setF((x) => ({ ...x, kategorie: k, jednotka: x.jednotka || KAT_JEDNOTKA[k] || "" }));
+                  }}
                   style={!f.kategorie ? { borderColor: "var(--neu-line)", background: "var(--neu-bg)" } : {}}>
             <option value="">vyber…</option>
-            {KATEGORIE.map((k) => <option key={k} value={k}>{k}</option>)}
+            {KAT_GROUPS.map((g) => (
+              <optgroup key={g.label} label={g.label}>
+                {g.items.map((k) => <option key={k} value={k}>{k}</option>)}
+              </optgroup>
+            ))}
           </select>
         </div>
         <div className="f">
-          <label>Za období</label>
+          <label>Za období (nepovinné)</label>
           <input type="date" value={f.obdobi} onChange={(e) => set("obdobi", e.target.value)} />
         </div>
         <div className="f">
           <label>Jednotka</label>
           <select value={f.jednotka} onChange={(e) => set("jednotka", e.target.value)}>
             <option value="">neuvedeno</option>
-            {["%", "tis.", "mld.", "index", "bps", "jiné"].map((u) => <option key={u} value={u}>{u}</option>)}
+            {JEDNOTKY.map((u) => <option key={u} value={u}>{u}</option>)}
           </select>
         </div>
         <div className="f">

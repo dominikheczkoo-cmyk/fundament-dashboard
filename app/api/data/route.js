@@ -63,6 +63,7 @@ export async function GET() {
       const o = val.number(P["OČEKÁVÁNÍ"]);
       const prev = val.number(P["PŘEDCHOZÍ"]);
       return {
+        id: p.id,
         info: val.title(P["INFO"]),
         cur: curFromRelation(val.relation(P["MĚNA"])),
         date: val.date(P["DATUM"]),

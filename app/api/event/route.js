@@ -1,40 +1,92 @@
-import { createEvent, CUR_PAGE } from "../../../lib/notion";
+import { DB, CUR_PAGE } from "../../../lib/notion";
 
 export const dynamic = "force-dynamic";
 
+const NOTION_VERSION = "2022-06-28";
+
+function hdrs() {
+  const token = process.env.NOTION_TOKEN;
+  if (!token) throw new Error("Chybí NOTION_TOKEN v proměnných prostředí.");
+  return {
+    Authorization: `Bearer ${token}`,
+    "Notion-Version": NOTION_VERSION,
+    "Content-Type": "application/json",
+  };
+}
+
+async function api(path, method, body) {
+  const res = await fetch(`https://api.notion.com/v1${path}`, {
+    method,
+    headers: hdrs(),
+    body: body ? JSON.stringify(body) : undefined,
+    cache: "no-store",
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.message || `HTTP ${res.status}`);
+  return json;
+}
+
+// poskládá properties z těla požadavku; vynechá, co není vyplněné
+function buildProps(b, { requireInfo = true } = {}) {
+  const props = {};
+
+  if (b.info !== undefined && String(b.info).trim() !== "") {
+    props.INFO = { title: [{ text: { content: String(b.info).slice(0, 1900) } }] };
+  } else if (requireInfo) {
+    throw new Error("Chybí popis události.");
+  }
+
+  if (b.cur) {
+    if (!CUR_PAGE[b.cur]) throw new Error(`Neznámá měna: ${b.cur}`);
+    props.MĚNA = { relation: [{ id: CUR_PAGE[b.cur] }] };
+  }
+  if (b.date) props.DATUM = { date: { start: b.date } };
+  if (b.obdobi) props.OBDOBÍ = { date: { start: b.obdobi } };
+  if (b.kategorie) props.KATEGORIE = { select: { name: b.kategorie } };
+  if (b.dopad) props.DOPAD = { select: { name: b.dopad } };
+  if (b.jednotka) props.JEDNOTKA = { select: { name: b.jednotka } };
+  if (b.verdict) props.VÝSLEDEK = { select: { name: b.verdict } };
+
+  const num = (v) => (v === "" || v === null || v === undefined ? undefined : Number(String(v).replace(",", ".")));
+  const a = num(b.aktual), o = num(b.ocekavani), p = num(b.predchozi);
+  if (a !== undefined && !isNaN(a)) props.AKTUÁL = { number: a };
+  if (o !== undefined && !isNaN(o)) props.OČEKÁVÁNÍ = { number: o };
+  if (p !== undefined && !isNaN(p)) props.PŘEDCHOZÍ = { number: p };
+
+  return props;
+}
+
+/* Nová událost */
 export async function POST(req) {
   try {
     const b = await req.json();
+    if (!b.cur) return Response.json({ error: "Vyber měnu." }, { status: 400 });
+    if (!b.date) return Response.json({ error: "Doplň datum." }, { status: 400 });
+    if (!b.kategorie) return Response.json({ error: "Vyber kategorii." }, { status: 400 });
 
-    if (!b.info || !String(b.info).trim()) {
-      return Response.json({ error: "Chybí popis události." }, { status: 400 });
-    }
-    if (!CUR_PAGE[b.cur]) {
-      return Response.json({ error: "Neznámá měna." }, { status: 400 });
-    }
-    if (!b.date) {
-      return Response.json({ error: "Chybí datum." }, { status: 400 });
-    }
-
-    const props = {
-      INFO: { title: [{ text: { content: String(b.info).slice(0, 1900) } }] },
-      MĚNA: { relation: [{ id: CUR_PAGE[b.cur] }] },
-      DATUM: { date: { start: b.date } },
-    };
-    if (b.kategorie) props["KATEGORIE"] = { select: { name: b.kategorie } };
-    if (b.dopad) props["DOPAD"] = { select: { name: b.dopad } };
-    if (b.jednotka) props["JEDNOTKA"] = { select: { name: b.jednotka } };
-    if (b.obdobi) props["OBDOBÍ"] = { date: { start: b.obdobi } };
-    if (b.verdict) props["VÝSLEDEK"] = { select: { name: b.verdict } };
-    if (b.aktual !== null && b.aktual !== undefined && b.aktual !== "")
-      props["AKTUÁL"] = { number: Number(b.aktual) };
-    if (b.ocekavani !== null && b.ocekavani !== undefined && b.ocekavani !== "")
-      props["OČEKÁVÁNÍ"] = { number: Number(b.ocekavani) };
-    if (b.predchozi !== null && b.predchozi !== undefined && b.predchozi !== "")
-      props["PŘEDCHOZÍ"] = { number: Number(b.predchozi) };
-
-    const page = await createEvent(props);
+    const props = buildProps(b);
+    const page = await api("/pages", "POST", {
+      parent: { database_id: DB.FUNDAMENT },
+      properties: props,
+    });
     return Response.json({ ok: true, id: page.id });
+  } catch (e) {
+    return Response.json({ error: e.message }, { status: 500 });
+  }
+}
+
+/* Doplnění existující (naplánované) události */
+export async function PATCH(req) {
+  try {
+    const b = await req.json();
+    if (!b.id) return Response.json({ error: "Chybí ID záznamu." }, { status: 400 });
+
+    const props = buildProps(b, { requireInfo: false });
+    if (Object.keys(props).length === 0) {
+      return Response.json({ error: "Není co uložit." }, { status: 400 });
+    }
+    await api(`/pages/${b.id}`, "PATCH", { properties: props });
+    return Response.json({ ok: true, id: b.id });
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 });
   }
