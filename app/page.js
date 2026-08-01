@@ -32,6 +32,21 @@ export default function Page() {
   }
   useEffect(() => { load(); }, []);
 
+  // Datum poslední události pro každou měnu — počítá se z FUNDAMENTU,
+  // takže vždycky sedí a nezávisí na ručně vyplněném LAST_UPDATED.
+  const lastEventByCur = useMemo(() => {
+    const m = {};
+    if (!data) return m;
+    data.events.forEach((e) => {
+      if (!e.cur || !e.date) return;
+      const base = e.cur.startsWith("EUR") ? "EUR" : e.cur;
+      const d = e.date.slice(0, 10);
+      if (!m[base] || d > m[base]) m[base] = d;
+      if (base !== e.cur && (!m[e.cur] || d > m[e.cur])) m[e.cur] = d;
+    });
+    return m;
+  }, [data]);
+
   const stats = useMemo(() => {
     if (!data) return null;
     const o = data.overview;
@@ -40,9 +55,10 @@ export default function Page() {
       pos: o.filter((r) => r.verdict === "+").length,
       neg: o.filter((r) => r.verdict === "-").length,
       neu: o.filter((r) => r.verdict === "0").length,
-      last: o.map((r) => r.updated).filter(Boolean).sort().pop(),
+      last: Object.values(lastEventByCur).filter(Boolean).sort().pop()
+            || o.map((r) => r.updated).filter(Boolean).sort().pop(),
     };
-  }, [data]);
+  }, [data, lastEventByCur]);
 
   return (
     <div className="wrap">
@@ -53,7 +69,7 @@ export default function Page() {
             {err ? "Data se nepodařilo načíst."
               : !data ? "Načítám z Notionu…"
               : <><b>{stats.n}</b> měn · <b>{stats.pos}</b> pozitivních, <b>{stats.neu}</b> smíšených,{" "}
-                  <b>{stats.neg}</b> negativních · aktualizováno <b>{czDate(stats.last)}</b></>}
+                  <b>{stats.neg}</b> negativních · poslední data <b>{czDate(stats.last)}</b></>}
           </p>
         </div>
         <button className="reload" onClick={load} disabled={busy}>
@@ -86,8 +102,9 @@ export default function Page() {
             ? <Detail row={data.overview.find((r) => r.code === open)}
                       rate={latestPerCur(data.rates || []).find((r) => r.cur === open)}
                       pos={latestPerCur(data.positions || []).find((r) => r.cur === open)}
+                      lastEvent={lastEventByCur[open]}
                       onBack={() => setOpen(null)} />
-            : <Cards rows={data.overview} onOpen={setOpen} />)}
+            : <Cards rows={data.overview} onOpen={setOpen} lastEvent={lastEventByCur} />)}
           {tab === "tyden" && <Tyden events={data.events} onSaved={load} />}
           {tab === "grafy" && <Charts events={data.events} rates={data.rates || []} positions={data.positions || []} />}
           {tab === "sazby" && <Rates rates={data.rates || []} positions={data.positions || []} />}
@@ -117,7 +134,7 @@ function Strip({ data, onPick }) {
   );
 }
 
-function Cards({ rows, onOpen }) {
+function Cards({ rows, onOpen, lastEvent = {} }) {
   const order = { "+": 0, "0": 1, "-": 2 };
   const sorted = [...rows].sort((a, b) => {
     const d = (order[a.verdict] ?? 3) - (order[b.verdict] ?? 3);
@@ -137,7 +154,9 @@ function Cards({ rows, onOpen }) {
             </div>
             <div className="card-sum">{r.summary || "Zatím bez shrnutí."}</div>
             <div className="card-foot">
-              <span>{czDate(r.updated)}</span><span>·</span>
+              <span title="datum poslední události ve FUNDAMENTU">
+                {czDate(lastEvent[r.code] || r.updated)}
+              </span><span>·</span>
               <span>{n} z {ALL.length} sekcí</span>
             </div>
           </button>
@@ -426,7 +445,7 @@ function MiniStat({ label, value, tone }) {
   );
 }
 
-function Detail({ row, rate, pos, onBack }) {
+function Detail({ row, rate, pos, lastEvent, onBack }) {
   if (!row) return null;
   const Sec = ({ name, prio }) => {
     const v = row.sections[name];
@@ -446,7 +465,8 @@ function Detail({ row, rate, pos, onBack }) {
         <span style={{ fontSize: 23, fontWeight: 660 }}>{row.code}</span>
         <span className={"badge " + vClass(row.verdict)}>{vLabel(row.verdict)}</span>
         <span style={{ marginLeft: "auto", fontSize: 12.5, color: "var(--ink-3)" }}>
-          aktualizováno {czDate(row.updated)}
+          poslední data {czDate(lastEvent || row.updated)}
+          {row.updated && <span style={{ marginLeft: 8 }}>· shrnutí z {czDate(row.updated)}</span>}
         </span>
       </div>
       {(rate || pos) && (

@@ -6,44 +6,94 @@ import { FLAG, CUR_NAME, JEDNOTKY, czDate, denVTydnu, filled } from "./lib-ui";
 /* Naplánované události — ty, které ještě nemají vyplněnou aktuální hodnotu.
    Doplníš je rovnou tady a uloží se zpátky do Notionu. */
 export function Tyden({ events, onSaved }) {
+  // "dnes" se počítá při každém načtení stránky, takže se seznam posouvá sám
   const dnes = new Date().toISOString().slice(0, 10);
+  const predMesicem = new Date(Date.now() - 31 * 864e5).toISOString().slice(0, 10);
   const zaMesic = new Date(Date.now() + 31 * 864e5).toISOString().slice(0, 10);
-  const predTydnem = new Date(Date.now() - 8 * 864e5).toISOString().slice(0, 10);
 
-  const planned = events
-    .filter((e) => e.aktual === null && e.date && e.date.slice(0, 10) >= predTydnem && e.date.slice(0, 10) <= zaMesic)
+  const bezHodnoty = events.filter((e) => e.aktual === null && e.date);
+
+  // K doplnění: událost už proběhla (nebo je dnes). Dřív hodnotu znát nemůžeme.
+  const kDoplneni = bezHodnoty
+    .filter((e) => e.date.slice(0, 10) <= dnes && e.date.slice(0, 10) >= predMesicem)
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+
+  // Chystá se: teprve přijde. Jen na přehled, nedá se vyplnit.
+  const chystaSe = bezHodnoty
+    .filter((e) => e.date.slice(0, 10) > dnes && e.date.slice(0, 10) <= zaMesic)
     .sort((a, b) => String(a.date).localeCompare(String(b.date)));
 
-  if (!planned.length) {
-    return (
-      <div className="note-box" style={{ textAlign: "left" }}>
-        Žádné naplánované události k doplnění. Jakmile ti do FUNDAMENTU přibudou záznamy
-        bez vyplněné aktuální hodnoty, objeví se tady i s formulářem na doplnění.
-      </div>
-    );
-  }
+  const poDnech = (list) => {
+    const dny = {};
+    list.forEach((e) => {
+      const d = e.date.slice(0, 10);
+      (dny[d] = dny[d] || []).push(e);
+    });
+    return dny;
+  };
 
-  const dny = {};
-  planned.forEach((e) => {
-    const d = e.date.slice(0, 10);
-    (dny[d] = dny[d] || []).push(e);
-  });
+  const dnyDoplnit = poDnech(kDoplneni);
+  const dnyChysta = poDnech(chystaSe);
 
   return (
     <>
+      <h3 className="sec-title">K doplnění</h3>
       <p className="sub" style={{ marginBottom: 14 }}>
-        Události, které čekají na doplnění. Vyplň aktuální hodnotu a popis — uloží se rovnou do Notionu.
+        Události, které už proběhly a čekají na hodnotu. Vyplň a uloží se do stejného
+        záznamu v Notionu — novou událost zakládat nemusíš.
       </p>
-      {Object.keys(dny).sort().map((d) => (
-        <div key={d} style={{ marginBottom: 18 }}>
-          <div className="day-head">
-            <b>{denVTydnu(d)}</b> {czDate(d)}
-            {d < dnes && <span className="day-past">už proběhlo</span>}
-          </div>
-          {dny[d].map((e) => <PlannedRow key={e.id} ev={e} onSaved={onSaved} />)}
+
+      {!kDoplneni.length ? (
+        <div className="note-box" style={{ textAlign: "left", marginBottom: 26 }}>
+          Nic nečeká na doplnění. Všechny proběhlé události mají vyplněnou hodnotu.
         </div>
-      ))}
+      ) : (
+        Object.keys(dnyDoplnit).sort().reverse().map((d) => (
+          <div key={d} style={{ marginBottom: 18 }}>
+            <div className="day-head">
+              <b>{denVTydnu(d)}</b> {czDate(d)}
+              {d === dnes && <span className="day-today">dnes</span>}
+            </div>
+            {dnyDoplnit[d].map((e) => <PlannedRow key={e.id} ev={e} onSaved={onSaved} />)}
+          </div>
+        ))
+      )}
+
+      {chystaSe.length > 0 && (
+        <>
+          <h3 className="sec-title" style={{ marginTop: 30 }}>Chystá se</h3>
+          <p className="sub" style={{ marginBottom: 14 }}>
+            Co teprve přijde. Doplnit půjde až v den, kdy událost proběhne.
+          </p>
+          {Object.keys(dnyChysta).sort().map((d) => (
+            <div key={d} style={{ marginBottom: 16 }}>
+              <div className="day-head"><b>{denVTydnu(d)}</b> {czDate(d)}</div>
+              {dnyChysta[d].map((e) => <UpcomingRow key={e.id} ev={e} />)}
+            </div>
+          ))}
+        </>
+      )}
     </>
+  );
+}
+
+/* Nadcházející událost — jen k přečtení */
+function UpcomingRow({ ev }) {
+  return (
+    <div className="plan upcoming">
+      <div className="plan-head" style={{ cursor: "default" }}>
+        <span className="plan-cur">{FLAG[ev.cur] || "◆"} {CUR_NAME[ev.cur] || ev.cur}</span>
+        <span className="plan-kat">{ev.kategorie || "bez kategorie"}</span>
+        <span className="plan-title">{ev.info}</span>
+        {ev.ocekavani !== null && (
+          <span className="plan-ocek">oček. {ev.ocekavani}{ev.jednotka ? " " + ev.jednotka : ""}</span>
+        )}
+        {ev.predchozi !== null && (
+          <span className="plan-ocek">předch. {ev.predchozi}</span>
+        )}
+        {ev.dopad && <span className={"plan-dopad d-" + ev.dopad.replace(/[^a-z]/gi, "")}>{ev.dopad}</span>}
+      </div>
+    </div>
   );
 }
 
