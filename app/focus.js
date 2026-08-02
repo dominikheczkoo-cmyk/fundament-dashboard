@@ -23,6 +23,10 @@ import {
  * ------------------------------------------------------------------ */
 
 const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+// Vrátí číslo, jen když je to opravdu číslo. Chybějící hodnota se musí
+// chovat jako „nevím" (null), ne jako NaN — NaN se totiž šíří dál a
+// jediná měna s neúplnými daty by rozhodila pořadí všech párů.
+const cislo = (n) => (typeof n === "number" && Number.isFinite(n) ? n : null);
 
 // kolik bp týdenního posunu už je „hodně" — kalibrace, ne dogma
 const REP_PLNY = 15;
@@ -48,9 +52,18 @@ export function repricingPodleMen(rates) {
   Object.entries(podle).forEach(([cur, list]) => {
     list.sort((a, b) => String(b.klic).localeCompare(String(a.klic)));
     if (list.length < 2) {
-      // I bez srovnání má smysl znát odůvodnění posledního ocenění
+      // I bez srovnání má smysl znát odůvodnění posledního ocenění.
+      // Všechna číselná pole musí být výslovně null — kdyby chyběla,
+      // výpočet z nich udělá NaN a jedno NaN pak rozbije celý žebříček.
       if (list.length === 1 && list[0].duvod) {
-        out[cur] = { delta: null, duvod: list[0].duvod, doKdy: list[0].klic, samotny: true };
+        out[cur] = {
+          delta: null, zaTyden: null,
+          sanceDelta: null, sanceZaTyden: null,
+          z: null, na: null, sanceZ: null, sanceNa: null,
+          odKdy: null, doKdy: list[0].klic, dnu: null,
+          duvod: list[0].duvod, tydenni: false, odhad: false,
+          samotny: true,
+        };
       }
       return;
     }
@@ -221,9 +234,10 @@ export function silaMen({ rates, events, positions, overview, weeks }) {
     // pravděpodobnost změny na nejbližším zasedání (krátký, ostřejší).
     // Když je k dispozici obojí, váží 60:40 ve prospěch nejbližšího zasedání,
     // protože ten posun je bezprostřednější. Počítá se týdenní tempo.
-    const bVyhled = r ? clamp(r.zaTyden / REP_PLNY, -1, 1) : null;
-    const bSance = r && r.sanceZaTyden !== null && r.sanceZaTyden !== undefined
-      ? clamp(r.sanceZaTyden / SANCE_PLNA, -1, 1) : null;
+    const vyhledZaTyden = r ? cislo(r.zaTyden) : null;
+    const sanceZaTyden = r ? cislo(r.sanceZaTyden) : null;
+    const bVyhled = vyhledZaTyden === null ? null : clamp(vyhledZaTyden / REP_PLNY, -1, 1);
+    const bSance = sanceZaTyden === null ? null : clamp(sanceZaTyden / SANCE_PLNA, -1, 1);
     const bRepSurovy =
       bVyhled === null && bSance === null ? null
         : bSance === null ? bVyhled
@@ -251,7 +265,7 @@ export function silaMen({ rates, events, positions, overview, weeks }) {
     const slozky = [
       { v: bRep, w: 0.45 }, { v: bFund, w: 0.25 },
       { v: bStav, w: 0.2 }, { v: bCot, w: 0.1 },
-    ].filter((x) => x.v !== null);
+    ].filter((x) => cislo(x.v) !== null);
 
     // Když si celkový stav a repricing protiřečí, je to samo o sobě
     // informace: fundament drží, ale trh to zatím nezaceňuje (nebo naopak).
@@ -273,8 +287,11 @@ export function silaMen({ rates, events, positions, overview, weeks }) {
   // Měřítko se přizpůsobí tomu, kolik dat vůbec existuje: když repricing
   // nemá zatím nikdo, škála se roztáhne podle nejlépe pokryté měny, ať
   // jsou rozdíly pořád čitelné.
-  const maxVaha = Math.max(0.1, ...Object.values(out).map((x) => x.vaha));
-  Object.values(out).forEach((x) => { x.bias = clamp(x.suma / maxVaha, -1, 1); });
+  const maxVaha = Math.max(0.1, ...Object.values(out).map((x) => cislo(x.vaha) ?? 0));
+  Object.values(out).forEach((x) => {
+    const s = cislo(x.suma);
+    x.bias = s === null ? 0 : clamp(s / maxVaha, -1, 1);
+  });
   return out;
 }
 
@@ -302,13 +319,19 @@ export function paryPodleSkore(sila) {
   // vyrobit — pár, kde jsou obě měny stejně silné, nemá kam jít, i kdyby
   // ho čekal sebenabitější týden. Divergence se škáluje k nejlepšímu páru,
   // ať jsou čísla čitelná i ve chvíli, kdy jsou biasy celkově nízké.
-  const maxDiv = Math.max(0.001, ...pary.map((p) => p.divergence));
+  // Do maxima jdou jen platná čísla — jediné NaN by jinak udělalo NaN
+  // z maxima a tím pádem ze skóre všech párů, což by řazení úplně vypnulo.
+  const platne = pary.map((p) => cislo(p.divergence)).filter((v) => v !== null);
+  const maxDiv = Math.max(0.001, ...platne);
   pary.forEach((p) => {
-    p.divRel = p.divergence / maxDiv;
+    const div = cislo(p.divergence) ?? 0;
+    const kat = cislo(p.katalyzator) ?? 0;
+    p.divRel = div / maxDiv;
     // Provázané měny se navzájem dotahují, takže rozdíl mezi nimi se hůř
     // promítne do kurzu — skóre se tlumí podle síly korelace.
     p.tlumeni = 1 - p.korelace * 0.6;
-    p.skore = Math.round(100 * p.divRel * (0.6 + 0.4 * p.katalyzator) * p.tlumeni);
+    p.skore = Math.round(100 * p.divRel * (0.6 + 0.4 * kat) * p.tlumeni);
+    if (!Number.isFinite(p.skore)) p.skore = 0;
   });
   return pary.sort((x, y) => y.skore - x.skore);
 }
