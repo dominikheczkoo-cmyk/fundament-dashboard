@@ -101,7 +101,10 @@ const VZORY_NEPODSTATNE = [
 // nezaměstnanosti; zpráva o příměří je breaking news, i když v ní někdo
 // něco „uvedl".
 const VZORY_PODSTATNE = [
+  // PRESS CONFERENCE je výhradně tiskovka hned po rozhodnutí o sazbách.
+  // Zápisy z jednání, bulletiny a běžné projevy patří pod PROJEVY (SPEAK).
   [/tiskov[áé]\s*konferenc|tiskovce|press conference/i, "PRESS CONFERENCE"],
+  [/z[áa]pis z jedn[áa]n[íi]|meeting minutes|z[áa]pis(u|y)? ze zased[áa]n[íi]/i, "SPEAK"],
   // \S* místo \w* — \w v JavaScriptu nezahrnuje á, é, í, ž a spol.,
   // takže „úrokové sazby" by přes \w* nikdy neprošlo
   [/úrokov\S*\s*sazb|ponechala sazby|rozhodnut[íi] o sazb|zvýšen[íi] sazeb|sn[íi]žen[íi] sazeb|\bFOMC\b|\bBoJ\b|\bECB\b/i, "INTEREST RATE"],
@@ -129,9 +132,17 @@ export function odvodKategorii(info) {
 
 /* Kategorie události pro účely vážení: buď vyplněná, nebo odvozená z textu.
    Vrací { kat, odvozeno } — ať se dá v UI přiznat, že jde o odhad. */
+// FOMC je americká instituce — u jiné měny než USD je to vždycky překlep
+// z importu. Bývají to zápisy z jednání, a ty patří pod PROJEVY.
+const KAT_JEN_USD = { FOMC: "SPEAK" };
+
 export function kategorieUdalosti(e) {
   if (e && e.kategorie && String(e.kategorie).trim()) {
-    return { kat: String(e.kategorie).toUpperCase(), odvozeno: false };
+    const k = String(e.kategorie).toUpperCase();
+    if (KAT_JEN_USD[k] && e.cur !== "USD") {
+      return { kat: KAT_JEN_USD[k], odvozeno: true, opraveno: k };
+    }
+    return { kat: k, odvozeno: false };
   }
   const odvozena = odvodKategorii(e && e.info);
   return odvozena ? { kat: odvozena, odvozeno: true } : { kat: null, odvozeno: false };
