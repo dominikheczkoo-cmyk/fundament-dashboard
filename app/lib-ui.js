@@ -61,6 +61,82 @@ export const KAT_VAHA = {
 };
 export const vahaKat = (k) => (k && KAT_VAHA[k] !== undefined ? KAT_VAHA[k] : 3);
 
+// Které kategorie se počítají do síly měny. Stejné pravidlo jako u SHRNUTÍ
+// v CELKOVÉM PŘEHLEDU: jen press conference, sazby, CPI, trh práce, projevy
+// a breaking news. PMI, PPI, HDP, retail sales, PCE ani nemovitosti sem
+// nepatří — jsou to podružné věci, které by hlavní signál jen zašuměly.
+export const PODSTATNE = [
+  "PRESS CONFERENCE",
+  "INTEREST RATE", "FOMC",
+  "CPI", "CORE CPI", "TOKYO CPI", "TOKYO CORE CPI",
+  // PCE je inflační ukazatel, který Fed preferuje před CPI — počítá se,
+  // i když v SHRNUTÍ celkového přehledu vlastní sekci nemá.
+  "PCE",
+  "UNEMPLOYMENT RATE", "UNEMPLOYMENT CHANGE", "EMPLOYMENT CHANGE",
+  "NONFARM PAYROLLS", "ADP NFP", "ADP EMPLOYMENT CHANGE",
+  "INITIAL JOBLESS CLAIMS", "JOLTS",
+  "SPEAK",
+  "BREAKING NEWS", "ELECTION",
+];
+export const jePodstatne = (k) => PODSTATNE.includes(String(k || "").toUpperCase());
+
+/* Ručně psané záznamy často nemají vyplněnou KATEGORII — čísla i téma jsou
+   jen v textu. Kdybychom je proto zahodili, přišli bychom o většinu
+   fundamentu. Kategorii se proto pokusíme odvodit z popisu.
+
+   Pořadí je důležité: nejdřív se vyloučí věci, které se snadno pletou
+   (PPI mluví o inflačních tlacích, HDP o ekonomice), teprve pak se hledá
+   to podstatné. Vrací null, když si nejsme jistí. */
+const VZORY_NEPODSTATNE = [
+  /\bPMI\b|nákupních manažerů/i,
+  /\bPPI\b|ceny výrobců|cen výrobců/i,
+  /\bHDP\b|\bGDP\b|hrubý domácí produkt/i,
+  /maloobchod|retail sales/i,
+  /spotřebitelsk[áé] důvěr|consumer confidence|consumer climate/i,
+  /stavebn[íi] povolen|housing starts|home sales|building permits/i,
+  /obchodní bilance|trade balance|průmyslov[áé] výrob/i,
+];
+// Pořadí = priorita. Konkrétnější témata musí být nad obecnějšími:
+// „žádosti o podporu v nezaměstnanosti" jsou jobless claims, ne míra
+// nezaměstnanosti; zpráva o příměří je breaking news, i když v ní někdo
+// něco „uvedl".
+const VZORY_PODSTATNE = [
+  [/tiskov[áé]\s*konferenc|tiskovce|press conference/i, "PRESS CONFERENCE"],
+  // \S* místo \w* — \w v JavaScriptu nezahrnuje á, é, í, ž a spol.,
+  // takže „úrokové sazby" by přes \w* nikdy neprošlo
+  [/úrokov\S*\s*sazb|ponechala sazby|rozhodnut[íi] o sazb|zvýšen[íi] sazeb|sn[íi]žen[íi] sazeb|\bFOMC\b|\bBoJ\b|\bECB\b/i, "INTEREST RATE"],
+  // PCE musí být nad CPI — text o PCE skoro vždycky mluví i o inflaci
+  [/\bPCE\b/i, "PCE"],
+  [/inflac|\bCPI\b|spotřebitelsk[éý]ch cen|cenov[éý] tlak/i, "CPI"],
+  [/žádost[ií] o podporu|jobless claims|unemployment claims/i, "INITIAL JOBLESS CLAIMS"],
+  [/nonfarm|payrolls|\bNFP\b/i, "NONFARM PAYROLLS"],
+  [/\bJOLTS\b|volných pracovních míst/i, "JOLTS"],
+  [/nezaměstnanost|unemployment/i, "UNEMPLOYMENT RATE"],
+  [/zaměstnanost|employment change/i, "EMPLOYMENT CHANGE"],
+  [/příměř|konflikt|válk|intervenc|útok|eskalac|sankc|demis|jadern/i, "BREAKING NEWS"],
+  [/guvernér|prohlásil|projev|speaks|člen (rady|FOMC)/i, "SPEAK"],
+];
+
+export function odvodKategorii(info) {
+  const t = String(info || "");
+  if (!t.trim()) return null;
+  if (VZORY_NEPODSTATNE.some((r) => r.test(t))) return null;
+  for (const [re, kat] of VZORY_PODSTATNE) {
+    if (re.test(t)) return kat;
+  }
+  return null;
+}
+
+/* Kategorie události pro účely vážení: buď vyplněná, nebo odvozená z textu.
+   Vrací { kat, odvozeno } — ať se dá v UI přiznat, že jde o odhad. */
+export function kategorieUdalosti(e) {
+  if (e && e.kategorie && String(e.kategorie).trim()) {
+    return { kat: String(e.kategorie).toUpperCase(), odvozeno: false };
+  }
+  const odvozena = odvodKategorii(e && e.info);
+  return odvozena ? { kat: odvozena, odvozeno: true } : { kat: null, odvozeno: false };
+}
+
 // Pořadí měn podle konvence kotace — dřívější je vždy základní (bázová).
 export const KOTACE = ["EUR", "GBP", "AUD", "NZD", "USD", "CAD", "CHF", "JPY"];
 

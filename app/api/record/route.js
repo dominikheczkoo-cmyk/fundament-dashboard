@@ -98,6 +98,9 @@ export async function POST(req) {
       if (b.zasedani) props["ZASEDÁNÍ"] = { date: { start: b.zasedani } };
       if (pred !== null && !isNaN(pred)) props["Předchozí Výsledek"] = { number: pred / 100 };
       if (sance !== null && !isNaN(sance)) props["Procentní šance"] = { number: sance / 100 };
+      // bez tohohle pole se procento nedá srovnávat — u každé měny může
+      // znamenat něco jiného (šance na zvýšení vs. šance na beze změny)
+      if (b.smerSance) props["ŠANCE NA"] = { select: { name: b.smerSance } };
       if (b.doKonceRoku) props["Výhled do konce roku"] = { rich_text: [{ text: { content: String(b.doKonceRoku).slice(0, 300) } }] };
       if (b.pocetSnizeni) props["Počet kroků do konce roku"] = { rich_text: [{ text: { content: String(b.pocetSnizeni).slice(0, 300) } }] };
 

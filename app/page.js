@@ -217,7 +217,7 @@ function Rates({ rates, positions }) {
           <thead>
             <tr>
               <th style={{ textAlign: "left" }}>Měna</th>
-              <th>Sazba</th><th>Šance</th>
+              <th>Sazba</th><th>Šance na příštím</th><th>Posun šance</th>
               <th>Do konce roku</th><th>Posun za týden</th>
               <th>Kroků</th><th>Zasedání</th>
             </tr>
@@ -236,7 +236,31 @@ function Rates({ rates, positions }) {
                       {FLAG[r.cur] || ""} {r.cur}
                     </td>
                     <td style={{ fontWeight: 650 }}>{pct(r.ocekavani)}</td>
-                    <td>{r.sance === null ? "—" : Math.round(r.sance * 100) + " %"}</td>
+                    <td style={{ fontSize: 12.5 }}>
+                      {r.sance === null ? "—" : (
+                        <>
+                          <b>{Math.round(r.sance * 100)} %</b>
+                          <span style={{ color: "var(--ink-3)" }}> {r.smerSance || "?"}</span>
+                        </>
+                      )}
+                    </td>
+                    <td>
+                      {(() => {
+                        const p = prev[r.cur];
+                        if (!p || p.sanceDelta === null || p.sanceDelta === undefined) {
+                          return <span style={{ color: "var(--ink-3)", fontSize: 12.5 }}>—</span>;
+                        }
+                        if (p.sanceDelta === 0) {
+                          return <span style={{ color: "var(--ink-3)" }}>beze změny</span>;
+                        }
+                        return (
+                          <span className={"pill " + (p.sanceDelta > 0 ? "up" : "down")}
+                                title={`šance na zvýšení ${Math.round(p.sanceZ * 100)} % → ${Math.round(p.sanceNa * 100)} %`}>
+                            {p.sanceDelta > 0 ? "+" : ""}{p.sanceDelta} p. b.
+                          </span>
+                        );
+                      })()}
+                    </td>
                     <td style={{ fontWeight: 620 }}>
                       {r.bps === null ? (r.doKonceRoku || "—")
                         : <span className={"pill " + (r.bps > 0 ? "up" : r.bps < 0 ? "down" : "")}>
@@ -268,7 +292,7 @@ function Rates({ rates, positions }) {
                   </tr>
                   {(filled(r.duvod) || filled(r.pocetSnizeni)) && (
                     <tr className="note-row" onClick={() => setOpenRow(isOpen ? null : r.cur)}>
-                      <td colSpan={7}>
+                      <td colSpan={9}>
                         <div className="note-meta">
                           {r.date && <>Oceněno <b>{czDate(r.date)}</b></>}
                           {filled(r.pocetSnizeni) && (
@@ -699,7 +723,7 @@ function RateForm({ onSaved }) {
   const today = new Date().toISOString().slice(0, 10);
   const [f, setF] = useState({
     cur: "EUR", date: today, zasedani: "", ocekavani: "", predchozi: "",
-    sance: "", doKonceRoku: "", pocetSnizeni: "", duvod: "",
+    sance: "", smerSance: "", doKonceRoku: "", pocetSnizeni: "", duvod: "",
   });
   const [mode, setMode] = useState("update");
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
@@ -750,7 +774,14 @@ function RateForm({ onSaved }) {
         <div className="f"><label>Předchozí sazba (%)</label>
           <input type="number" step="any" value={f.predchozi} onChange={(e) => set("predchozi", e.target.value)} placeholder="3.75" /></div>
         <div className="f"><label>Procentní šance (%)</label>
-          <input type="number" step="any" value={f.sance} onChange={(e) => set("sance", e.target.value)} placeholder="99" /></div>
+          <input type="number" step="any" value={f.sance} onChange={(e) => set("sance", e.target.value)} placeholder="68" /></div>
+        <div className="f"><label>Šance na co</label>
+          <select value={f.smerSance} onChange={(e) => set("smerSance", e.target.value)}>
+            <option value="">— vyber —</option>
+            <option value="zvýšení">zvýšení</option>
+            <option value="beze změny">beze změny</option>
+            <option value="snížení">snížení</option>
+          </select></div>
         <div className="f"><label>Výhled do konce roku</label>
           <input type="text" value={f.doKonceRoku} onChange={(e) => set("doKonceRoku", e.target.value)} placeholder="20 bps up" /></div>
         <div className="f"><label>Počet kroků do konce roku</label>
@@ -779,7 +810,7 @@ function RateForm({ onSaved }) {
       <div className="form-actions">
         <button className="btn-primary" onClick={() => send({ kind: "rate", mode, ...f },
           mode === "update" ? `Sazby pro ${f.cur} přepsány ✓` : `Sazby pro ${f.cur} přidány ✓`,
-          () => setF({ ...f, zasedani: "", ocekavani: "", predchozi: "", sance: "", doKonceRoku: "", pocetSnizeni: "", duvod: "" }))} disabled={busy}>
+          () => setF({ ...f, zasedani: "", ocekavani: "", predchozi: "", sance: "", smerSance: "", doKonceRoku: "", pocetSnizeni: "", duvod: "" }))} disabled={busy}>
           {mode === "update" ? "Přepsat v Notionu" : "Přidat do Notionu"}
         </button>
         <span className={"status " + status.kind}>{status.msg}</span>

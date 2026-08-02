@@ -95,6 +95,21 @@ export async function GET() {
       return n;
     }
 
+    // Procento u každé měny znamená něco jiného — u jedné šanci na zvýšení,
+    // u druhé šanci, že se nic nestane. Pro srovnání se všechno převede na
+    // jedno měřítko: pravděpodobnost zvýšení na příštím zasedání.
+    // Zbytek u „beze změny" se přiřadí podle toho, kam míří výhled do konce roku.
+    function sanceNaZvyseni(sance, smer, vyhledBp) {
+      if (sance === null || sance === undefined) return null;
+      if (smer === "zvýšení") return sance;
+      if (smer === "snížení") return 0;
+      if (smer === "beze změny") {
+        if (vyhledBp === null) return null;
+        return vyhledBp > 0 ? Math.round((1 - sance) * 1000) / 1000 : 0;
+      }
+      return null; // bez vyplněného směru radši nic než špatně
+    }
+
     const rates = sazby.map((p) => {
       const P = p.properties;
       const ocek = val.number(P["Očekávání"]);
@@ -102,14 +117,19 @@ export async function GET() {
       const vyhled = val.text(P["Výhled do konce roku"]);
       const dOceneni = val.date(P["DATUM OCENĚNÍ"]);
       const dZasedani = val.date(P["ZASEDÁNÍ"]);
+      const sance = val.number(P["Procentní šance"]);
+      const smerSance = val.select(P["ŠANCE NA"]);
+      const vyhledBp = bpsZTextu(vyhled);
       return {
         cur: curFromRelation(val.relation(P["MĚNA"])),
         ocekavani: ocek,
         predchozi: pred,
         zmena: ocek !== null && pred !== null ? Math.round((ocek - pred) * 1e6) / 1e6 : null,
-        sance: val.number(P["Procentní šance"]),
+        sance,
+        smerSance,
+        sanceZvyseni: sanceNaZvyseni(sance, smerSance, vyhledBp),
         doKonceRoku: vyhled,
-        bps: bpsZTextu(vyhled),
+        bps: vyhledBp,
         pocetSnizeni: val.text(P["Počet kroků do konce roku"]),
         duvod: val.title(P["Důvod změny a předchozí hodnota"]),
         date: dOceneni,

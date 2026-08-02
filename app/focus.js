@@ -1,7 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { FLAG, MAIN_CUR, KOTACE, korelace, vahaKat, doHlavni, czDate, shortDate, denVTydnu } from "./lib-ui";
+import {
+  FLAG, MAIN_CUR, KOTACE, korelace, vahaKat, jePodstatne, kategorieUdalosti,
+  czDate, shortDate, denVTydnu,
+} from "./lib-ui";
 
 /* ------------------------------------------------------------------ *
  *  KAM MÍŘIT PŘÍŠTÍ TÝDEN
@@ -23,6 +26,8 @@ const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
 
 // kolik bp týdenního posunu už je „hodně" — kalibrace, ne dogma
 const REP_PLNY = 15;
+// posun pravděpodobnosti zvýšení o 25 procentních bodů za týden = plný signál
+const SANCE_PLNA = 25;
 // součet vážených verdiktů, který bereme jako plný fundamentální signál
 const FUND_PLNY = 20;
 
@@ -42,7 +47,13 @@ export function repricingPodleMen(rates) {
   const out = {};
   Object.entries(podle).forEach(([cur, list]) => {
     list.sort((a, b) => String(b.klic).localeCompare(String(a.klic)));
-    if (list.length < 2) return;
+    if (list.length < 2) {
+      // I bez srovnání má smysl znát odůvodnění posledního ocenění
+      if (list.length === 1 && list[0].duvod) {
+        out[cur] = { delta: null, duvod: list[0].duvod, doKdy: list[0].klic, samotny: true };
+      }
+      return;
+    }
     const [ted, drive] = list;
     // kolik dní uplynulo — když je to zhruba týden, jde o týdenní posun,
     // u starších záznamů se to popíše datem, ať to nesvádí k přehnaným závěrům
@@ -50,6 +61,13 @@ export function repricingPodleMen(rates) {
       (new Date(ted.klic).getTime() - new Date(drive.klic).getTime()) / 864e5
     );
     const delta = Math.round((ted.bps - drive.bps) * 10) / 10;
+    // Posun pravděpodobnosti zvýšení na nejbližším zasedání, v procentních
+    // bodech. Krátkodobější a často ostřejší signál než výhled do konce roku.
+    const sanceDelta =
+      ted.sanceZvyseni !== null && ted.sanceZvyseni !== undefined &&
+      drive.sanceZvyseni !== null && drive.sanceZvyseni !== undefined
+        ? Math.round((ted.sanceZvyseni - drive.sanceZvyseni) * 1000) / 10
+        : null;
     // 26 bp za tři měsíce není totéž co 26 bp za týden — pro sílu měny
     // se posun přepočítá na týdenní tempo, ať jsou měny srovnatelné
     const tydnu = Math.max(1, dnu / 7);
@@ -57,7 +75,12 @@ export function repricingPodleMen(rates) {
       delta,
       zaTyden: Math.round((delta / tydnu) * 10) / 10,
       z: drive.bps, na: ted.bps,
+      sanceDelta,
+      sanceZaTyden: sanceDelta === null ? null : Math.round((sanceDelta / tydnu) * 10) / 10,
+      sanceZ: drive.sanceZvyseni, sanceNa: ted.sanceZvyseni,
       odKdy: drive.klic, doKdy: ted.klic, dnu,
+      // proč se to přecenilo — text z pole „Důvod změny a předchozí hodnota"
+      duvod: ted.duvod || null,
       tydenni: dnu > 0 && dnu <= 10,
       // datum předchozího snímku je jen odhad ze zasedání, ne skutečné ocenění
       odhad: !!drive.odhadDatum,
@@ -75,12 +98,18 @@ function fundamentPodleMen(events) {
     const d = String(e.date || "").slice(0, 10);
     if (!d || d > dnes || d < tydenZpet) return;
     if (!e.verdict || e.verdict === "0") return;
-    const cur = doHlavni(e.cur);
+    // Jen podstatné kategorie — drobnosti sílu měny neurčují. Když kategorie
+    // chybí, zkusí se odvodit z textu, jinak by ručně psané záznamy vypadly.
+    const { kat, odvozeno } = kategorieUdalosti(e);
+    if (!jePodstatne(kat)) return;
+    // Bez doHlavni: u eura se počítá výhradně eurozóna. Německá, francouzská
+    // a španělská data jsou zdrojová, ale do síly EUR se nesčítají.
+    const cur = e.cur;
     if (!cur || !MAIN_CUR.includes(cur)) return;
-    const v = vahaKat(e.kategorie) * (e.verdict === "+" ? 1 : -1);
+    const v = vahaKat(kat) * (e.verdict === "+" ? 1 : -1);
     const o = (out[cur] = out[cur] || { suma: 0, udalosti: [] });
     o.suma += v;
-    o.udalosti.push({ ...e, vaha: Math.abs(v), znak: e.verdict });
+    o.udalosti.push({ ...e, kat, odvozeno, vaha: Math.abs(v), znak: e.verdict });
   });
   Object.values(out).forEach((o) => o.udalosti.sort((a, b) => b.vaha - a.vaha));
   return out;
@@ -94,13 +123,17 @@ function katalyzatoryPodleMen(events) {
   events.forEach((e) => {
     const d = String(e.date || "").slice(0, 10);
     if (!d || d <= dnes || d > zaTyden) return;
-    const cur = doHlavni(e.cur);
+    // Stejná dvě pravidla jako u fundamentu: jen podstatné kategorie
+    // a u eura výhradně eurozóna.
+    const { kat } = kategorieUdalosti(e);
+    if (!jePodstatne(kat)) return;
+    const cur = e.cur;
     if (!cur || !MAIN_CUR.includes(cur)) return;
-    const v = vahaKat(e.kategorie);
+    const v = vahaKat(kat);
     if (v === 0) return;
     const o = (out[cur] = out[cur] || { suma: 0, udalosti: [] });
     o.suma += v;
-    o.udalosti.push({ ...e, vaha: v });
+    o.udalosti.push({ ...e, kat, vaha: v });
   });
   Object.values(out).forEach((o) =>
     o.udalosti.sort((a, b) => b.vaha - a.vaha || String(a.date).localeCompare(String(b.date)))
@@ -118,17 +151,22 @@ const TYDNU_ZPET = 6;
 
 function stavPodleMen(overview, weeks) {
   const out = {};
-  MAIN_CUR.forEach((c) => { out[c] = { celkovy: null, trend: null, tydny: [] }; });
+  MAIN_CUR.forEach((c) => {
+    out[c] = { celkovy: null, trend: null, tydny: [], shrnuti: null, sekce: null };
+  });
 
   (overview || []).forEach((o) => {
-    const c = doHlavni(String(o.code || "").trim());
-    if (out[c] && o.verdict) out[c].celkovy = o.verdict;
+    const c = String(o.code || "").trim();
+    if (!out[c]) return;
+    if (o.verdict) out[c].celkovy = o.verdict;
+    if (o.summary) out[c].shrnuti = o.summary;
+    if (o.sections) out[c].sekce = o.sections;
   });
 
   const hranice = isoPosun(-7 * TYDNU_ZPET);
   const podle = {};
   (weeks || []).forEach((w) => {
-    const c = doHlavni(w.cur);
+    const c = w.cur;
     if (!c || !MAIN_CUR.includes(c) || !w.date) return;
     if (String(w.date).slice(0, 10) < hranice) return;
     (podle[c] = podle[c] || []).push(w);
@@ -179,9 +217,20 @@ export function silaMen({ rates, events, positions, overview, weeks }) {
     const k = kat[c] || null;
     const s = cot[c] || null;
 
-    // Počítá se týdenní tempo posunu. Starší srovnání navíc dostane menší
-    // váhu — je to pořád informace, ale ne čerstvá.
-    const bRep = r ? clamp(r.zaTyden / REP_PLNY, -1, 1) * (r.tydenni ? 1 : 0.75) : null;
+    // Repricing má dvě části: výhled do konce roku (dlouhý horizont) a
+    // pravděpodobnost změny na nejbližším zasedání (krátký, ostřejší).
+    // Když je k dispozici obojí, váží 60:40 ve prospěch nejbližšího zasedání,
+    // protože ten posun je bezprostřednější. Počítá se týdenní tempo.
+    const bVyhled = r ? clamp(r.zaTyden / REP_PLNY, -1, 1) : null;
+    const bSance = r && r.sanceZaTyden !== null && r.sanceZaTyden !== undefined
+      ? clamp(r.sanceZaTyden / SANCE_PLNA, -1, 1) : null;
+    const bRepSurovy =
+      bVyhled === null && bSance === null ? null
+        : bSance === null ? bVyhled
+        : bVyhled === null ? bSance
+        : bSance * 0.6 + bVyhled * 0.4;
+    // Starší srovnání než týden dostane menší váhu — pořád informace, ale ne čerstvá.
+    const bRep = bRepSurovy === null ? null : bRepSurovy * (r.tydenni ? 1 : 0.75);
     const bFund = f ? clamp(f.suma / FUND_PLNY, -1, 1) : null;
     const bCot = s && s.shortTerm ? (/bull/i.test(s.shortTerm) ? 0.5 : /bear/i.test(s.shortTerm) ? -0.5 : 0) : null;
 
@@ -281,18 +330,55 @@ function duvody(p) {
         + (s.rep.tydenni ? "" : ` (za ${s.rep.dnu} dní od ${czDate(s.rep.odKdy)}, tj. ${bp(s.rep.zaTyden)}/týden)`)
       );
     });
-    const rozdilBp = a.rep && b.rep ? Math.round((a.rep.delta - b.rep.delta) * 10) / 10 : null;
-    out.push({
-      typ: "rep",
-      text: casti.join(" · ") + (rozdilBp !== null ? ` → rozdíl ${Math.abs(rozdilBp)} bp` : ""),
+    const rozdilBp =
+      a.rep && b.rep && a.rep.delta !== null && b.rep.delta !== null
+        ? Math.round((a.rep.delta - b.rep.delta) * 10) / 10 : null;
+    if (casti.length) {
+      out.push({
+        typ: "rep",
+        text: casti.join(" · ") + (rozdilBp !== null ? ` → rozdíl ${Math.abs(rozdilBp)} bp` : ""),
+      });
+    }
+    // Posun pravděpodobnosti na nejbližším zasedání
+    const sanceCasti = [];
+    [a, b].forEach((s) => {
+      if (!s.rep || s.rep.sanceDelta === null || s.rep.sanceDelta === undefined) return;
+      const d = s.rep.sanceDelta;
+      sanceCasti.push(
+        `${s.cur} ${d > 0 ? "+" : ""}${d} p. b. `
+        + `(${Math.round(s.rep.sanceZ * 100)} % → ${Math.round(s.rep.sanceNa * 100)} %)`
+      );
+    });
+    if (sanceCasti.length) {
+      out.push({
+        typ: "sance",
+        text: `Šance na zvýšení na nejbližším zasedání: ${sanceCasti.join(" · ")}`,
+      });
+    }
+
+    // Proč se to přecenilo — text, který si u sazeb zapisuješ
+    [a, b].forEach((s) => {
+      if (!s.rep || !s.rep.duvod) return;
+      out.push({ typ: "repduvod", cur: s.cur, text: s.rep.duvod });
     });
   }
 
   [a, b].forEach((s) => {
     if (!s.fund || !s.fund.udalosti.length) return;
-    const top = s.fund.udalosti.slice(0, 2)
-      .map((e) => `${e.info} (${e.znak === "+" ? "pozitivní" : "negativní"})`).join(", ");
-    out.push({ typ: "fund", text: `${s.cur}: ${top}` });
+    const top = s.fund.udalosti.slice(0, 3).map((e) => {
+      const nazev = String(e.info || "").trim();
+      // dlouhý popis zkrátit na první větu, ať je řádek čitelný
+      const kratky = nazev.length > 110
+        ? nazev.slice(0, nazev.slice(0, 110).lastIndexOf(".") + 1 || 110).trim()
+        : nazev;
+      return `${e.znak === "+" ? "+" : "−"} ${e.kat}${e.odvozeno ? "*" : ""} · ${kratky}`;
+    });
+    out.push({
+      typ: "fund",
+      cur: s.cur,
+      text: `${s.cur} (součet ${s.fund.suma > 0 ? "+" : ""}${s.fund.suma} z ${s.fund.udalosti.length} událostí):\n`
+        + top.join("\n"),
+    });
   });
 
   [a, b].forEach((s) => {
@@ -309,6 +395,8 @@ function duvody(p) {
       casti.push(`posledních ${st.tydny.length} týdnů ${smer}`);
     }
     if (casti.length) out.push({ typ: "stav", text: `${s.cur}: ${casti.join(", ")}` });
+    // celé shrnutí měny z CELKOVÉHO PŘEHLEDU
+    if (st.shrnuti) out.push({ typ: "shrnuti", cur: s.cur, text: st.shrnuti });
   });
 
   [a, b].forEach((s) => {
@@ -325,9 +413,10 @@ function duvody(p) {
 
   [a, b].forEach((s) => {
     if (!s.kat || !s.kat.udalosti.length) return;
-    const top = s.kat.udalosti.slice(0, 3)
-      .map((e) => `${e.info} ${denVTydnu(e.date).slice(0, 2)} ${shortDate(e.date)}`).join(", ");
-    out.push({ typ: "kat", text: `${s.cur} má před sebou: ${top}` });
+    const top = s.kat.udalosti.slice(0, 4)
+      .map((e) => `${denVTydnu(e.date).slice(0, 2)} ${shortDate(e.date)} ${e.info} (váha ${e.vaha})`)
+      .join("\n");
+    out.push({ typ: "kat", text: `${s.cur} má před sebou:\n${top}` });
   });
 
   if (p.korelace) {
@@ -495,6 +584,12 @@ export function Focus({ rates, events, positions, overview = [], weeks = [], foc
         Fundament za minulý týden dává tomu posunu jméno, <b>celkový stav</b> drží sílu
         nasbíranou v předchozích týdnech, nadcházející události říkají, kde bude pohyb,
         a COT je jen potvrzení.
+        <br />
+        Počítají se <b>jen podstatné kategorie</b> — press conference, sazby, CPI a PCE,
+        trh práce, projevy a breaking news. PMI, PPI, HDP, retail sales ani
+        spotřebitelská důvěra sem nepatří.
+        U eura se bere <b>výhradně eurozóna</b>, národní data z Německa, Francie
+        a Španělska jsou jen zdrojová.
       </p>
 
       {maTydenni < 2 && (
@@ -547,8 +642,12 @@ export function Focus({ rates, events, positions, overview = [], weeks = [], foc
                   {dv.map((d, k) => (
                     <div key={k} className={"focus-reason r-" + d.typ}>
                       <span className="focus-tag">
-                        {d.typ === "rep" ? "repricing" : d.typ === "fund" ? "fundament"
+                        {d.typ === "rep" ? "repricing"
+                          : d.typ === "sance" ? "šance"
+                          : d.typ === "repduvod" ? `proč ${d.cur}`
+                          : d.typ === "fund" ? "fundament"
                           : d.typ === "stav" ? "celkový stav"
+                          : d.typ === "shrnuti" ? `shrnutí ${d.cur}`
                           : d.typ === "rozpor" ? "⚠ rozpor"
                           : d.typ === "kat" ? "čeká nás" : d.typ === "kor" ? "korelace" : "pozice"}
                       </span>

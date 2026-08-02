@@ -323,3 +323,11 @@ tr.note-row:hover td { background: #faf9f7; }
 .focus-reason.r-rozpor { background: var(--neu-bg); border-radius: 8px; padding: 8px 10px; margin: 4px 0; }
 .focus-reason.r-rozpor .focus-tag { color: var(--neu); }
 .focus-reason.r-stav .focus-tag { color: var(--ink-2); }
+.focus-reason.r-repduvod, .focus-reason.r-shrnuti {
+  border-left: 2px solid var(--line); padding-left: 10px; margin: 4px 0 4px 2px;
+}
+.focus-reason.r-repduvod span:last-child, .focus-reason.r-shrnuti span:last-child {
+  color: var(--ink-2); white-space: pre-wrap;
+}
+.focus-reason.r-fund span:last-child, .focus-reason.r-kat span:last-child { white-space: pre-line; }
+.focus-reason.r-sance .focus-tag { color: var(--accent); }
