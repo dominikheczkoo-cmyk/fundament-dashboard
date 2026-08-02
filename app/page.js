@@ -190,8 +190,26 @@ export function latestPerCur(rows) {
   return Object.values(best);
 }
 
+// pro každou měnu najdi předchozí ocenění, ať jde spočítat týdenní posun
+function predchoziOceneni(rates) {
+  const dnes = new Date().toISOString().slice(0, 10);
+  const podleMeny = {};
+  rates.forEach((r) => {
+    if (!r.cur || !r.date) return;
+    if (String(r.date).slice(0, 10) > dnes) return;
+    (podleMeny[r.cur] = podleMeny[r.cur] || []).push(r);
+  });
+  const out = {};
+  Object.entries(podleMeny).forEach(([cur, list]) => {
+    list.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    if (list.length > 1) out[cur] = list[1];
+  });
+  return out;
+}
+
 function Rates({ rates, positions }) {
   const [openRow, setOpenRow] = useState(null);
+  const prev = predchoziOceneni(rates);
   const sorted = latestPerCur(rates).sort((a, b) => (b.ocekavani ?? -9) - (a.ocekavani ?? -9));
   const posLatest = latestPerCur(positions);
   const posSorted = [...posLatest].sort((a, b) => (b.spread ?? -1e9) - (a.spread ?? -1e9));
@@ -208,8 +226,9 @@ function Rates({ rates, positions }) {
           <thead>
             <tr>
               <th style={{ textAlign: "left" }}>Měna</th>
-              <th>Očekávání</th><th>Předchozí</th><th>Změna</th>
-              <th>Šance</th><th>Do konce roku</th><th>Zasedání</th>
+              <th>Sazba</th><th>Šance</th>
+              <th>Do konce roku</th><th>Posun za týden</th>
+              <th>Kroků</th><th>Zasedání</th>
             </tr>
           </thead>
           <tbody>
@@ -226,26 +245,48 @@ function Rates({ rates, positions }) {
                       {FLAG[r.cur] || ""} {r.cur}
                     </td>
                     <td style={{ fontWeight: 650 }}>{pct(r.ocekavani)}</td>
-                    <td style={{ color: "var(--ink-3)" }}>{pct(r.predchozi)}</td>
-                    <td>
-                      {r.zmena === null || r.zmena === 0
-                        ? <span style={{ color: "var(--ink-3)" }}>beze změny</span>
-                        : <span className={"pill " + (r.zmena > 0 ? "up" : "down")}>
-                            {r.zmena > 0 ? "+" : ""}{Math.round(r.zmena * 10000)} bps
+                    <td>{r.sance === null ? "—" : Math.round(r.sance * 100) + " %"}</td>
+                    <td style={{ fontWeight: 620 }}>
+                      {r.bps === null ? (r.doKonceRoku || "—")
+                        : <span className={"pill " + (r.bps > 0 ? "up" : r.bps < 0 ? "down" : "")}>
+                            {r.bps > 0 ? "+" : ""}{r.bps} bp
                           </span>}
                     </td>
-                    <td>{r.sance === null ? "—" : Math.round(r.sance * 100) + " %"}</td>
-                    <td style={{ color: "var(--ink-2)" }}>{r.doKonceRoku || "—"}</td>
-                    <td style={{ color: "var(--ink-3)", fontSize: 12.5 }}>{czDate(r.date)}</td>
+                    <td>
+                      {(() => {
+                        const p = prev[r.cur];
+                        if (!p || p.bps === null || r.bps === null) {
+                          return <span style={{ color: "var(--ink-3)", fontSize: 12.5 }}>—</span>;
+                        }
+                        const d = Math.round((r.bps - p.bps) * 10) / 10;
+                        if (d === 0) return <span style={{ color: "var(--ink-3)" }}>beze změny</span>;
+                        return (
+                          <span className={"pill " + (d > 0 ? "up" : "down")}
+                                title={`z ${p.bps} bp na ${r.bps} bp (${czDate(p.date)} → ${czDate(r.date)})`}>
+                            {d > 0 ? "+" : ""}{d} bp
+                          </span>
+                        );
+                      })()}
+                    </td>
+                    <td style={{ color: "var(--ink-2)", fontSize: 12.5 }}>
+                      {r.pocetSnizeni ? String(r.pocetSnizeni).split(" ")[0] : "—"}
+                    </td>
+                    <td style={{ color: "var(--ink-3)", fontSize: 12.5 }}>
+                      {r.zasedani ? czDate(r.zasedani) : "—"}
+                    </td>
                   </tr>
                   {(filled(r.duvod) || filled(r.pocetSnizeni)) && (
                     <tr className="note-row" onClick={() => setOpenRow(isOpen ? null : r.cur)}>
                       <td colSpan={7}>
-                        {filled(r.pocetSnizeni) && (
-                          <div className="note-meta">
-                            Počet ročních snížení: <b>{r.pocetSnizeni}</b>
-                          </div>
-                        )}
+                        <div className="note-meta">
+                          {r.date && <>Oceněno <b>{czDate(r.date)}</b></>}
+                          {filled(r.pocetSnizeni) && (
+                            <> · Kroků do konce roku: <b>{r.pocetSnizeni}</b></>
+                          )}
+                          {r.predchozi !== null && r.predchozi !== undefined && (
+                            <> · Předchozí sazba: <b>{pct(r.predchozi)}</b></>
+                          )}
+                        </div>
                         {filled(r.duvod) && (
                           <div className={"note-text" + (isOpen ? "" : " clamp")}>{r.duvod}</div>
                         )}
@@ -666,7 +707,7 @@ function useSaver(onSaved) {
 function RateForm({ onSaved }) {
   const today = new Date().toISOString().slice(0, 10);
   const [f, setF] = useState({
-    cur: "EUR", date: today, ocekavani: "", predchozi: "",
+    cur: "EUR", date: today, zasedani: "", ocekavani: "", predchozi: "",
     sance: "", doKonceRoku: "", pocetSnizeni: "", duvod: "",
   });
   const [mode, setMode] = useState("update");
@@ -676,12 +717,27 @@ function RateForm({ onSaved }) {
   const o = parseFloat(f.ocekavani), p = parseFloat(f.predchozi);
   const bps = !isNaN(o) && !isNaN(p) ? Math.round((o - p) * 100) : null;
 
+  // z "38 bps up" spočítá počet kroků — jeden krok = 25 bp
+  const vyhledBp = (() => {
+    const m = String(f.doKonceRoku || "").match(/(-?\d+(?:[.,]\d+)?)\s*bp/i);
+    if (!m) return null;
+    let n = Number(String(m[1]).replace(",", "."));
+    if (isNaN(n)) return null;
+    if (/down|cut|sníž/i.test(f.doKonceRoku) && n > 0) n = -n;
+    return n;
+  })();
+  const kroky = vyhledBp === null ? null : Math.round((Math.abs(vyhledBp) / 25) * 10) / 10;
+  const krokyText = kroky === null ? "" : `${String(kroky).replace(".", ",")} (${Math.abs(vyhledBp)} bp při kroku 25 bp)`;
+
   return (
     <div className="form">
       <h2>Nový záznam o sazbách</h2>
       <p className="hint">
         Sazby zadávej v procentech, tedy <b>3,75</b> pro 3,75 %. Šanci taky v procentech, tedy <b>99</b> pro 99 %.
         Každý nový záznam se přidá jako další řádek, takže ti vzniká historie — v tabulce se vždy ukáže ten nejnovější.
+        <br />
+        <b>Datum ocenění</b> je den, ke kterému trh takhle oceňoval (typicky víkend, kdy data přepisuješ).
+        <b> Datum zasedání</b> je den, kdy banka o sazbě rozhoduje. Drž je oddělené, jinak ti záznamy skáčou v čase.
       </p>
       <div className="fgrid">
         <div className="f">
@@ -691,8 +747,12 @@ function RateForm({ onSaved }) {
           </select>
         </div>
         <div className="f">
-          <label>Datum zasedání</label>
+          <label>Datum ocenění</label>
           <input type="date" value={f.date} onChange={(e) => set("date", e.target.value)} />
+        </div>
+        <div className="f">
+          <label>Datum zasedání</label>
+          <input type="date" value={f.zasedani} onChange={(e) => set("zasedani", e.target.value)} />
         </div>
         <div className="f"><label>Očekávaná sazba (%)</label>
           <input type="number" step="any" value={f.ocekavani} onChange={(e) => set("ocekavani", e.target.value)} placeholder="3.75" /></div>
@@ -702,8 +762,15 @@ function RateForm({ onSaved }) {
           <input type="number" step="any" value={f.sance} onChange={(e) => set("sance", e.target.value)} placeholder="99" /></div>
         <div className="f"><label>Výhled do konce roku</label>
           <input type="text" value={f.doKonceRoku} onChange={(e) => set("doKonceRoku", e.target.value)} placeholder="20 bps up" /></div>
-        <div className="f"><label>Počet ročních snížení</label>
-          <input type="text" value={f.pocetSnizeni} onChange={(e) => set("pocetSnizeni", e.target.value)} placeholder="např. 2" /></div>
+        <div className="f"><label>Počet kroků do konce roku</label>
+          <input type="text" value={f.pocetSnizeni} onChange={(e) => set("pocetSnizeni", e.target.value)}
+                 placeholder="1,5 (38 bp při kroku 25 bp)" />
+          {krokyText && f.pocetSnizeni !== krokyText && (
+            <button type="button" className="mini-fill" onClick={() => set("pocetSnizeni", krokyText)}>
+              doplnit „{krokyText}“
+            </button>
+          )}
+        </div>
         <div className="f wide">
           <div className={"surprise" + (bps === null || bps === 0 ? "" : bps > 0 ? " on-pos" : " on-neg")}>
             {bps === null ? "Vyplň očekávanou a předchozí sazbu — změna se dopočítá."
@@ -721,7 +788,7 @@ function RateForm({ onSaved }) {
       <div className="form-actions">
         <button className="btn-primary" onClick={() => send({ kind: "rate", mode, ...f },
           mode === "update" ? `Sazby pro ${f.cur} přepsány ✓` : `Sazby pro ${f.cur} přidány ✓`,
-          () => setF({ ...f, ocekavani: "", predchozi: "", sance: "", doKonceRoku: "", pocetSnizeni: "", duvod: "" }))} disabled={busy}>
+          () => setF({ ...f, zasedani: "", ocekavani: "", predchozi: "", sance: "", doKonceRoku: "", pocetSnizeni: "", duvod: "" }))} disabled={busy}>
           {mode === "update" ? "Přepsat v Notionu" : "Přidat do Notionu"}
         </button>
         <span className={"status " + status.kind}>{status.msg}</span>

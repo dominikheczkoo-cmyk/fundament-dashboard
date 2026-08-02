@@ -33,19 +33,19 @@ async function createPage(databaseId, properties) {
 }
 
 // najde nejnovější existující řádek pro danou měnu
-async function findExisting(databaseId, relProp, pageId) {
+async function findExisting(databaseId, relProp, pageId, dateProp) {
   const r = await api(`/databases/${databaseId}/query`, "POST", {
     filter: { property: relProp, relation: { contains: pageId } },
-    sorts: [{ property: "Datum", direction: "descending" }],
+    sorts: [{ property: dateProp, direction: "descending" }],
     page_size: 1,
   });
   return r.results && r.results.length ? r.results[0].id : null;
 }
 
 // přepíše existující, nebo založí nový, když žádný není
-async function upsert(databaseId, relProp, pageId, properties, mode) {
+async function upsert(databaseId, relProp, pageId, properties, mode, dateProp) {
   if (mode === "update") {
-    const existing = await findExisting(databaseId, relProp, pageId);
+    const existing = await findExisting(databaseId, relProp, pageId, dateProp || "Datum");
     if (existing) {
       await api(`/pages/${existing}`, "PATCH", { properties });
       return { id: existing, updated: true };
@@ -89,16 +89,19 @@ export async function POST(req) {
           title: [{ text: { content: String(b.duvod || `${b.cur} — sazby`).slice(0, 1900) } }],
         },
         MĚNA: rel,
-        Datum: { date: { start: b.date } },
+        // datum, kdy trh takhle oceňoval — ne datum zasedání
+        "DATUM OCENĚNÍ": { date: { start: b.date } },
         // procentní pole: 3.75 % ukládáme jako 0.0375
         Očekávání: { number: ocek / 100 },
       };
+      // datum zasedání centrální banky je zvlášť, ať se ta dvě nemíchají
+      if (b.zasedani) props["ZASEDÁNÍ"] = { date: { start: b.zasedani } };
       if (pred !== null && !isNaN(pred)) props["Předchozí Výsledek"] = { number: pred / 100 };
       if (sance !== null && !isNaN(sance)) props["Procentní šance"] = { number: sance / 100 };
-      if (b.doKonceRoku) props["Snížení do konce roku"] = { rich_text: [{ text: { content: String(b.doKonceRoku).slice(0, 300) } }] };
-      if (b.pocetSnizeni) props["Počet ročních snížení"] = { rich_text: [{ text: { content: String(b.pocetSnizeni).slice(0, 300) } }] };
+      if (b.doKonceRoku) props["Výhled do konce roku"] = { rich_text: [{ text: { content: String(b.doKonceRoku).slice(0, 300) } }] };
+      if (b.pocetSnizeni) props["Počet kroků do konce roku"] = { rich_text: [{ text: { content: String(b.pocetSnizeni).slice(0, 300) } }] };
 
-      const r = await upsert(DB.SAZBY, "MĚNA", ALL_PAGES[b.cur], props, b.mode);
+      const r = await upsert(DB.SAZBY, "MĚNA", ALL_PAGES[b.cur], props, b.mode, "DATUM OCENĚNÍ");
       return Response.json({ ok: true, id: r.id, updated: r.updated });
     }
 
@@ -111,7 +114,7 @@ export async function POST(req) {
       const props = {
         // v Notionu je title "Long"
         Long: { title: [{ text: { content: long } }] },
-        Měna: rel,
+        MĚNA: rel,
         Datum: { date: { start: b.date } },
       };
       const short = fmtNum(b.short);
@@ -121,7 +124,7 @@ export async function POST(req) {
       if (b.shortTerm) props["Short Term Výsledek"] = { select: { name: b.shortTerm } };
       if (b.longTerm) props["Long Term Výsledek"] = { select: { name: b.longTerm } };
 
-      const r = await upsert(DB.SENTIMENT, "Měna", ALL_PAGES[b.cur], props, b.mode);
+      const r = await upsert(DB.SENTIMENT, "MĚNA", ALL_PAGES[b.cur], props, b.mode, "Datum");
       return Response.json({ ok: true, id: r.id, updated: r.updated });
     }
 

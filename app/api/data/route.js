@@ -80,20 +80,34 @@ export async function GET() {
       };
     });
 
+    // z textu "38 bps up" / "-16 bps" vytáhne znaménkové číslo
+    function bpsZTextu(s) {
+      if (!s) return null;
+      const m = String(s).match(/(-?\d+(?:[.,]\d+)?)\s*bp/i);
+      if (!m) return null;
+      let n = Number(String(m[1]).replace(",", "."));
+      if (isNaN(n)) return null;
+      if (/down|cut|sníž/i.test(s) && n > 0) n = -n;
+      return n;
+    }
+
     const rates = sazby.map((p) => {
       const P = p.properties;
       const ocek = val.number(P["Očekávání"]);
       const pred = val.number(P["Předchozí Výsledek"]);
+      const vyhled = val.text(P["Výhled do konce roku"]);
       return {
         cur: curFromRelation(val.relation(P["MĚNA"])),
         ocekavani: ocek,
         predchozi: pred,
         zmena: ocek !== null && pred !== null ? Math.round((ocek - pred) * 1e6) / 1e6 : null,
         sance: val.number(P["Procentní šance"]),
-        doKonceRoku: val.text(P["Snížení do konce roku"]),
-        pocetSnizeni: val.text(P["Počet ročních snížení"]),
+        doKonceRoku: vyhled,
+        bps: bpsZTextu(vyhled),
+        pocetSnizeni: val.text(P["Počet kroků do konce roku"]),
         duvod: val.title(P["Důvod změny a předchozí hodnota"]),
-        date: val.date(P["Datum"]),
+        date: val.date(P["DATUM OCENĚNÍ"]),
+        zasedani: val.date(P["ZASEDÁNÍ"]),
       };
     }).filter((r) => r.cur);
 
