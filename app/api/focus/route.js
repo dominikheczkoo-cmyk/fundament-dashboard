@@ -1,6 +1,57 @@
 import { DB, CUR_PAGE } from "../../../lib/notion";
+import { silaMen, paryPodleSkore, duvody } from "../../../lib/model";
 
 export const dynamic = "force-dynamic";
+
+/* Spočítaný žebříček, stejným modelem jako stránka v prohlížeči.
+   Používá to naplánovaná úloha, aby hlásila přesně to, co uvidíš ve webu. */
+export async function GET(req) {
+  try {
+    const base = new URL(req.url).origin;
+    const res = await fetch(`${base}/api/data`, { cache: "no-store" });
+    const d = await res.json();
+    if (d.error) throw new Error(d.error);
+
+    const sila = silaMen({
+      rates: d.rates || [], events: d.events || [], positions: d.positions || [],
+      overview: d.overview || [], weeks: d.weeks || [],
+    });
+    const pary = paryPodleSkore(sila).slice(0, 8);
+
+    return Response.json({
+      spocteno: new Date().toISOString(),
+      meny: Object.values(sila)
+        .sort((a, b) => b.bias - a.bias)
+        .map((s) => ({
+          cur: s.cur,
+          bias: Math.round(s.bias * 1000) / 1000,
+          repricing: s.rep ? s.rep.delta : null,
+          repricingTydenni: s.rep ? !!s.rep.tydenni : false,
+          fundament: s.fund ? s.fund.suma : null,
+          celkovyStav: s.stav ? s.stav.celkovy : null,
+          cot: s.cot ? s.cot.shortTerm : null,
+          rozpor: !!s.rozpor,
+        })),
+      pary: pary.map((p, i) => ({
+        poradi: i + 1,
+        par: p.id,
+        smer: p.rozdil > 0 ? "nahoru" : "dolů",
+        skore: p.skore,
+        rozdilBiasu: Math.round(Math.abs(p.rozdil) * 1000) / 1000,
+        katalyzatory: Math.round(p.katalyzator * 100),
+        duvody: duvody(p).map((x) => ({ typ: x.typ, text: x.text })),
+      })),
+      // uložený snímek k porovnání
+      ulozeno: (d.focus || [])
+        .filter((f) => f.date)
+        .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+        .slice(0, 8)
+        .map((f) => ({ datum: f.date, poradi: f.poradi, par: f.par, smer: f.smer, skore: f.skore })),
+    });
+  } catch (e) {
+    return Response.json({ error: e.message }, { status: 500 });
+  }
+}
 
 const NOTION_VERSION = "2022-06-28";
 
