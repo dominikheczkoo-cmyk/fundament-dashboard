@@ -19,7 +19,7 @@ function parseNum(s) {
 
 export async function GET() {
   try {
-    const [celkovy, weekly, fundament, sazby, sentiment] = await Promise.all([
+    const [celkovy, weekly, fundament, sazby, sentiment, focusRows] = await Promise.all([
       queryDatabase(DB.CELKOVY),
       queryDatabase(DB.WEEKLY, {
         sorts: [{ property: "DATUM", direction: "descending" }],
@@ -29,6 +29,10 @@ export async function GET() {
       }),
       queryDatabase(DB.SAZBY),
       queryDatabase(DB.SENTIMENT),
+      // historie doporučení se může tvářit jako prázdná, dokud nic neuložíš
+      queryDatabase(DB.FOCUS, {
+        sorts: [{ property: "DATUM", direction: "descending" }],
+      }).catch(() => []),
     ]);
 
     const overview = celkovy.map((p) => {
@@ -96,6 +100,8 @@ export async function GET() {
       const ocek = val.number(P["Očekávání"]);
       const pred = val.number(P["Předchozí Výsledek"]);
       const vyhled = val.text(P["Výhled do konce roku"]);
+      const dOceneni = val.date(P["DATUM OCENĚNÍ"]);
+      const dZasedani = val.date(P["ZASEDÁNÍ"]);
       return {
         cur: curFromRelation(val.relation(P["MĚNA"])),
         ocekavani: ocek,
@@ -106,8 +112,12 @@ export async function GET() {
         bps: bpsZTextu(vyhled),
         pocetSnizeni: val.text(P["Počet kroků do konce roku"]),
         duvod: val.title(P["Důvod změny a předchozí hodnota"]),
-        date: val.date(P["DATUM OCENĚNÍ"]),
-        zasedani: val.date(P["ZASEDÁNÍ"]),
+        date: dOceneni,
+        zasedani: dZasedani,
+        // Starší záznamy datum ocenění nemají — pro řazení historie
+        // se u nich použije datum zasedání, ať je co s čím srovnat.
+        poradi: dOceneni || dZasedani,
+        odhadDatum: !dOceneni && !!dZasedani,
       };
     }).filter((r) => r.cur);
 
@@ -124,7 +134,27 @@ export async function GET() {
       };
     }).filter((r) => r.cur);
 
-    return Response.json({ overview, weeks, events, rates, positions, sections: SECTIONS });
+    const focus = focusRows.map((p) => {
+      const P = p.properties;
+      return {
+        id: p.id,
+        par: val.title(P["PÁR"]),
+        date: val.date(P["DATUM"]),
+        poradi: val.number(P["POŘADÍ"]),
+        skore: val.number(P["SKÓRE"]),
+        smer: val.select(P["SMĚR"]),
+        biasBaze: val.number(P["BIAS BÁZE"]),
+        biasKvot: val.number(P["BIAS KVÓTOVANÉ"]),
+        divergence: val.number(P["DIVERGENCE"]),
+        katalyzator: val.number(P["KATALYZÁTORY"]),
+        repricing: val.text(P["REPRICING"]),
+        duvod: val.text(P["DŮVOD"]),
+        vysledek: val.select(P["VÝSLEDEK"]),
+        poznamka: val.text(P["POZNÁMKA"]),
+      };
+    });
+
+    return Response.json({ overview, weeks, events, rates, positions, focus, sections: SECTIONS });
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 });
   }

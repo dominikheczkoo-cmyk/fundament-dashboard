@@ -8,6 +8,7 @@ import {
 } from "./lib-ui";
 import { LineChart, BarChart, fmt } from "./chart";
 import { Tyden } from "./tyden";
+import { Focus, repricingPodleMen } from "./focus";
 
 export default function Page() {
   const [data, setData] = useState(null);
@@ -92,7 +93,7 @@ export default function Page() {
         <>
           <Strip data={data} onPick={(c) => { setTab("prehled"); setOpen(c); }} />
           <nav className="tabs">
-            {[["prehled","Přehled"],["tyden","Tento týden"],["grafy","Grafy"],["sazby","Sazby a sentiment"],["historie","Historie týdnů"],["udalosti","Události"],["zadat","+ Zadat"]]
+            {[["prehled","Přehled"],["focus","Kam mířit"],["tyden","Tento týden"],["grafy","Grafy"],["sazby","Sazby a sentiment"],["historie","Historie týdnů"],["udalosti","Události"],["zadat","+ Zadat"]]
               .map(([k, label]) => (
                 <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{label}</button>
               ))}
@@ -105,6 +106,10 @@ export default function Page() {
                       lastEvent={lastEventByCur[open]}
                       onBack={() => setOpen(null)} />
             : <Cards rows={data.overview} onOpen={setOpen} lastEvent={lastEventByCur} />)}
+          {tab === "focus" && <Focus rates={data.rates || []} events={data.events || []}
+                                     positions={data.positions || []} focus={data.focus || []}
+                                     overview={data.overview || []} weeks={data.weeks || []}
+                                     onSaved={load} />}
           {tab === "tyden" && <Tyden events={data.events} onSaved={load} />}
           {tab === "grafy" && <Charts events={data.events} rates={data.rates || []} positions={data.positions || []} />}
           {tab === "sazby" && <Rates rates={data.rates || []} positions={data.positions || []} />}
@@ -190,26 +195,10 @@ export function latestPerCur(rows) {
   return Object.values(best);
 }
 
-// pro každou měnu najdi předchozí ocenění, ať jde spočítat týdenní posun
-function predchoziOceneni(rates) {
-  const dnes = new Date().toISOString().slice(0, 10);
-  const podleMeny = {};
-  rates.forEach((r) => {
-    if (!r.cur || !r.date) return;
-    if (String(r.date).slice(0, 10) > dnes) return;
-    (podleMeny[r.cur] = podleMeny[r.cur] || []).push(r);
-  });
-  const out = {};
-  Object.entries(podleMeny).forEach(([cur, list]) => {
-    list.sort((a, b) => String(b.date).localeCompare(String(a.date)));
-    if (list.length > 1) out[cur] = list[1];
-  });
-  return out;
-}
-
 function Rates({ rates, positions }) {
   const [openRow, setOpenRow] = useState(null);
-  const prev = predchoziOceneni(rates);
+  // stejný výpočet, jaký pohání záložku „Kam mířit" — ať čísla souhlasí
+  const prev = repricingPodleMen(rates);
   const sorted = latestPerCur(rates).sort((a, b) => (b.ocekavani ?? -9) - (a.ocekavani ?? -9));
   const posLatest = latestPerCur(positions);
   const posSorted = [...posLatest].sort((a, b) => (b.spread ?? -1e9) - (a.spread ?? -1e9));
@@ -220,6 +209,8 @@ function Rates({ rates, positions }) {
       <h3 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 640 }}>Úrokové sazby</h3>
       <p className="sub" style={{ marginBottom: 12 }}>
         Seřazeno od nejvyšší sazby. Rozdíl mezi dvěma měnami je to, co žene jejich pár.
+        {" "}Hvězdička u posunu znamená, že se srovnává proti staršímu záznamu než minulý
+        týden — najeď myší pro přesná data.
       </p>
       <div className="hm-wrap" style={{ padding: 0, overflowX: "auto" }}>
         <table className="tbl">
@@ -255,15 +246,15 @@ function Rates({ rates, positions }) {
                     <td>
                       {(() => {
                         const p = prev[r.cur];
-                        if (!p || p.bps === null || r.bps === null) {
+                        if (!p) {
                           return <span style={{ color: "var(--ink-3)", fontSize: 12.5 }}>—</span>;
                         }
-                        const d = Math.round((r.bps - p.bps) * 10) / 10;
-                        if (d === 0) return <span style={{ color: "var(--ink-3)" }}>beze změny</span>;
+                        if (p.delta === 0) return <span style={{ color: "var(--ink-3)" }}>beze změny</span>;
                         return (
-                          <span className={"pill " + (d > 0 ? "up" : "down")}
-                                title={`z ${p.bps} bp na ${r.bps} bp (${czDate(p.date)} → ${czDate(r.date)})`}>
-                            {d > 0 ? "+" : ""}{d} bp
+                          <span className={"pill " + (p.delta > 0 ? "up" : "down")}
+                                title={`z ${p.z} bp na ${p.na} bp (${czDate(p.odKdy)} → ${czDate(p.doKdy)})`}>
+                            {p.delta > 0 ? "+" : ""}{p.delta} bp
+                            {!p.tydenni && <span style={{ opacity: 0.6 }}> *</span>}
                           </span>
                         );
                       })()}

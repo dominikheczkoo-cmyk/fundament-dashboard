@@ -44,6 +44,49 @@ export const KATEGORIE = KAT_GROUPS.flatMap((g) => g.items);
 
 export const JEDNOTKY = ["%", "body", "tis.", "mld.", "index", "bps", "jiné"];
 
+// Jak moc která kategorie hýbe trhem. Používá se dvakrát:
+//  1. na váhu události, která už proběhla (co repricing způsobilo)
+//  2. na váhu události, která teprve přijde (kde bude příští týden pohyb)
+// Press conference nahoře — forward guidance přebíjí samotné rozhodnutí.
+export const KAT_VAHA = {
+  "PRESS CONFERENCE": 12, "INTEREST RATE": 10, FOMC: 8, SPEAK: 3,
+  CPI: 10, "CORE CPI": 10, PCE: 8, "TOKYO CPI": 6, "TOKYO CORE CPI": 6,
+  PPI: 5, "CORE PPI": 5,
+  "NONFARM PAYROLLS": 10, "UNEMPLOYMENT RATE": 7, "EMPLOYMENT CHANGE": 6,
+  "ADP NFP": 5, "ADP EMPLOYMENT CHANGE": 4, "UNEMPLOYMENT CHANGE": 4,
+  JOLTS: 4, "INITIAL JOBLESS CLAIMS": 3,
+  GDP: 8, "RETAIL SALES": 6, "CORE RETAIL SALES": 5, PMI: 5, "CONSUMER CONFIDENCE": 3,
+  "BUILDING PERMITS": 3, "HOUSING STARTS": 3, "NEW HOME SALES": 3, "EXISTING HOME SALES": 3,
+  "BREAKING NEWS": 8, ELECTION: 6, "OTHER NEWS": 1, "BANK HOLIDAY": 0,
+};
+export const vahaKat = (k) => (k && KAT_VAHA[k] !== undefined ? KAT_VAHA[k] : 3);
+
+// Pořadí měn podle konvence kotace — dřívější je vždy základní (bázová).
+export const KOTACE = ["EUR", "GBP", "AUD", "NZD", "USD", "CAD", "CHF", "JPY"];
+
+// Provázané měny. Když se dvě měny hýbou spolu, rozdíl mezi nimi se hůř
+// obchoduje — jedna druhou dotahuje. Skóre páru se proto tlumí.
+// Zdroj: vlastní poznámky k fundamentu (USD+CAD ekonomicky provázané,
+// AUD+NZD geograficky a obchodně, zlato proti dolaru obráceně).
+export const KORELACE = [
+  { mena: ["USD", "CAD"], sila: 0.6 },
+  { mena: ["AUD", "NZD"], sila: 0.8 },
+];
+// klíč se normalizuje abecedně, ať nezáleží na pořadí měn v páru
+const KOR_MAPA = {};
+KORELACE.forEach(({ mena, sila }) => {
+  KOR_MAPA[[...mena].sort().join("|")] = sila;
+});
+export function korelace(a, b) {
+  if (!a || !b || a === b) return 0;
+  return KOR_MAPA[[a, b].sort().join("|")] || 0;
+}
+// Zlato se pohybuje proti dolaru — jak silně, je odhad, ne měřená hodnota.
+export const XAU_VS_USD = -0.7;
+
+// Data z Německa, Francie a Španělska se pro sílu měny počítají do eura.
+export const doHlavni = (c) => (String(c || "").startsWith("EUR") ? "EUR" : c);
+
 // do které sekce CELKOVÉHO PŘEHLEDU kategorie patří
 export const KAT_TO_SEKCE = {
   "INTEREST RATE": "SAZBY", "FOMC": "SAZBY",

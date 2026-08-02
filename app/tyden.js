@@ -15,6 +15,19 @@ const jeKostra = (e) =>
   !!(e.kategorie && String(e.kategorie).trim()) &&
   String(e.info || "").trim().length <= KOSTRA_MAX_DELKA;
 
+// Kategorie, kde se nic nevyhodnocuje — nemá smysl je nabízet k doplnění.
+const NEVYHODNOCUJE_SE = ["BANK HOLIDAY"];
+
+/* Kdy je událost hotová.
+   Dřív se to poznávalo jen podle čísla v AKTUÁL, jenže spousta událostí
+   žádné číslo nemá — projevy, tiskové konference, breaking news, svátky.
+   Ty by svítily „doplnit" napořád. Za hotovou proto bereme událost,
+   která má číslo NEBO dopad na měnu NEBO vlastní popis místo názvu z kalendáře. */
+const jeHotova = (e) =>
+  e.aktual !== null ||
+  !!(e.verdict && String(e.verdict).trim()) ||
+  String(e.info || "").trim().length > KOSTRA_MAX_DELKA;
+
 export function Tyden({ events, onSaved }) {
   // "dnes" se počítá při každém načtení stránky, takže se seznam posouvá sám
   const dnes = new Date().toISOString().slice(0, 10);
@@ -23,7 +36,13 @@ export function Tyden({ events, onSaved }) {
 
   // Jen nevyplněné kostry z kalendáře. Vlastnoručně psané záznamy sem nepatří,
   // i když nemají číslo v poli AKTUÁL — text v nich je hotová práce.
-  const bezHodnoty = events.filter((e) => e.aktual === null && e.date && jeKostra(e));
+  const bezHodnoty = events.filter(
+    (e) =>
+      e.date &&
+      jeKostra(e) &&
+      !jeHotova(e) &&
+      !NEVYHODNOCUJE_SE.includes(String(e.kategorie || "").toUpperCase())
+  );
 
   // K doplnění: událost už proběhla (nebo je dnes), ale ne dál než týden zpátky.
   const kDoplneni = bezHodnoty
@@ -125,8 +144,14 @@ function PlannedRow({ ev, onSaved }) {
   const zmena = !isNaN(a) && !isNaN(p) ? Math.round((a - p) * 1000) / 1000 : null;
 
   async function save() {
-    if (f.aktual === "" && !filled(f.info)) {
-      return setStatus({ msg: "Doplň aspoň hodnotu nebo popis.", kind: "bad" });
+    // Uložení, které nic nemění, by událost jen nechalo dál svítit „doplnit".
+    // Chceme aspoň jednu z věcí, podle kterých se pozná hotová událost.
+    const zmenenyPopis = String(f.info || "").trim() !== String(ev.info || "").trim();
+    if (f.aktual === "" && !f.verdict && !zmenenyPopis) {
+      return setStatus({
+        msg: "Zatím není co uložit — doplň hodnotu, dopad na měnu nebo popis.",
+        kind: "bad",
+      });
     }
     setBusy(true);
     setStatus({ msg: "Ukládám…", kind: "" });
