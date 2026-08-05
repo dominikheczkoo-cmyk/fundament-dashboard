@@ -61,6 +61,11 @@ export const KAT_VAHA = {
 };
 export const vahaKat = (k) => (k && KAT_VAHA[k] !== undefined ? KAT_VAHA[k] : 3);
 
+// Předběžné číslo trhem hýbe, finální revize je skoro non-event — trh už ji zná.
+// Revize může překvapit, ale míň než původní zveřejnění.
+export const VAHA_TYPU = { "předběžný": 1.15, "finální": 0.4, "revidovaný": 0.7 };
+export const vahaTypu = (t) => VAHA_TYPU[String(t || "")] ?? 1;
+
 // Které kategorie se počítají do síly měny. Stejné pravidlo jako u SHRNUTÍ
 // v CELKOVÉM PŘEHLEDU: jen press conference, sazby, CPI, trh práce, projevy
 // a breaking news. PMI, PPI, HDP, retail sales, PCE ani nemovitosti sem
@@ -79,6 +84,17 @@ export const PODSTATNE = [
   "BREAKING NEWS", "ELECTION",
 ];
 export const jePodstatne = (k) => PODSTATNE.includes(String(k || "").toUpperCase());
+
+// Změna zaměstnanosti se sleduje jen za celou eurozónu — národní čísla
+// z Německa, Francie a Španělska sem nepatří. Míra nezaměstnanosti u těchto
+// zemí se sleduje dál, ta je v pořádku.
+const JEN_EUROZONA = ["EMPLOYMENT CHANGE", "ADP EMPLOYMENT CHANGE"];
+export function platiProMenu(kat, cur) {
+  const k = String(kat || "").toUpperCase();
+  const c = String(cur || "");
+  if (JEN_EUROZONA.includes(k) && c.startsWith("EUR-")) return false;
+  return true;
+}
 
 /* Ručně psané záznamy často nemají vyplněnou KATEGORII — čísla i téma jsou
    jen v textu. Kdybychom je proto zahodili, přišli bychom o většinu
@@ -239,6 +255,29 @@ export function shortDate(iso) {
   const p = String(iso).slice(0, 10).split("-");
   return p.length === 3 ? `${+p[2]}.${+p[1]}.` : iso;
 }
+// Čas z hodnoty DATUM. Notion vrací buď samotné datum ("2026-08-07"),
+// nebo datum s časem ("2026-08-07T14:30:00.000+02:00"). U starších záznamů
+// čas není — vrací se prázdný řetězec a v UI se prostě nic neukáže.
+export function cas(iso) {
+  const s = String(iso || "");
+  const m = s.match(/T(\d{2}):(\d{2})/);
+  return m ? `${m[1]}:${m[2]}` : "";
+}
+export const maCas = (iso) => !!cas(iso);
+
+// Do které obchodní seance událost spadá (pražský čas).
+// Překryv Londýn + New York je nejaktivnější část dne.
+export function seance(iso) {
+  const c = cas(iso);
+  if (!c) return null;
+  const h = Number(c.slice(0, 2)) + Number(c.slice(3)) / 60;
+  if (h >= 14 && h < 18) return "Londýn + New York";
+  if (h >= 9 && h < 18) return "Londýn";
+  if (h >= 18 && h < 23) return "New York";
+  if (h >= 1 && h < 10) return "Tokio";
+  return "Sydney";
+}
+
 export const DNY = ["neděle", "pondělí", "úterý", "středa", "čtvrtek", "pátek", "sobota"];
 export function denVTydnu(iso) {
   if (!iso) return "";

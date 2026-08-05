@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { FLAG, CUR_NAME, JEDNOTKY, czDate, denVTydnu, filled } from "./lib-ui";
+import { FLAG, CUR_NAME, JEDNOTKY, czDate, denVTydnu, filled, cas, seance } from "./lib-ui";
 
 /* Naplánované události — ty, které ještě nemají vyplněnou aktuální hodnotu.
    Doplníš je rovnou tady a uloží se zpátky do Notionu. */
@@ -47,12 +47,12 @@ export function Tyden({ events, onSaved }) {
   // K doplnění: událost už proběhla (nebo je dnes), ale ne dál než týden zpátky.
   const kDoplneni = bezHodnoty
     .filter((e) => e.date.slice(0, 10) <= dnes && e.date.slice(0, 10) >= predTydnem)
-    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));  // nejnovější nahoře
 
   // Chystá se: teprve přijde. Jen na přehled, nedá se vyplnit.
   const chystaSe = bezHodnoty
     .filter((e) => e.date.slice(0, 10) > dnes && e.date.slice(0, 10) <= zaDvaTydny)
-    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));  // ISO řadí i podle času
 
   const poDnech = (list) => {
     const dny = {};
@@ -113,8 +113,12 @@ function UpcomingRow({ ev }) {
   return (
     <div className="plan upcoming">
       <div className="plan-head" style={{ cursor: "default" }}>
+        <span className="plan-cas" title={seance(ev.date) ? "seance " + seance(ev.date) : ""}>
+          {cas(ev.date) || "—"}
+        </span>
         <span className="plan-cur">{FLAG[ev.cur] || "◆"} {CUR_NAME[ev.cur] || ev.cur}</span>
         <span className="plan-kat">{ev.kategorie || "bez kategorie"}</span>
+        {ev.typ && ev.typ !== "finální" && <span className="plan-typ">{ev.typ}</span>}
         <span className="plan-title">{ev.info}</span>
         {ev.ocekavani !== null && (
           <span className="plan-ocek">oček. {ev.ocekavani}{ev.jednotka ? " " + ev.jednotka : ""}</span>
@@ -134,6 +138,7 @@ function PlannedRow({ ev, onSaved }) {
     aktual: "", info: ev.info || "", verdict: ev.verdict || null,
     jednotka: ev.jednotka || "", predchozi: ev.predchozi ?? "",
     ocekavani: ev.ocekavani ?? "",
+    aktualMoM: "", ocekavaniMoM: ev.ocekavaniMoM ?? "", predchoziMoM: ev.predchoziMoM ?? "",
   });
   const [status, setStatus] = useState({ msg: "", kind: "" });
   const [busy, setBusy] = useState(false);
@@ -147,7 +152,7 @@ function PlannedRow({ ev, onSaved }) {
     // Uložení, které nic nemění, by událost jen nechalo dál svítit „doplnit".
     // Chceme aspoň jednu z věcí, podle kterých se pozná hotová událost.
     const zmenenyPopis = String(f.info || "").trim() !== String(ev.info || "").trim();
-    if (f.aktual === "" && !f.verdict && !zmenenyPopis) {
+    if (f.aktual === "" && f.aktualMoM === "" && !f.verdict && !zmenenyPopis) {
       return setStatus({
         msg: "Zatím není co uložit — doplň hodnotu, dopad na měnu nebo popis.",
         kind: "bad",
@@ -176,8 +181,12 @@ function PlannedRow({ ev, onSaved }) {
     <div className="plan">
       <button className="plan-head" onClick={() => setOpen(!open)}>
         <span className="plan-arrow">{open ? "▾" : "▸"}</span>
+        <span className="plan-cas" title={seance(ev.date) ? "seance " + seance(ev.date) : ""}>
+          {cas(ev.date) || "—"}
+        </span>
         <span className="plan-cur">{FLAG[ev.cur] || "◆"} {CUR_NAME[ev.cur] || ev.cur}</span>
         <span className="plan-kat">{ev.kategorie || "bez kategorie"}</span>
+        {ev.typ && ev.typ !== "finální" && <span className="plan-typ">{ev.typ}</span>}
         {ev.ocekavani !== null && (
           <span className="plan-ocek">oček. {ev.ocekavani}{ev.jednotka ? " " + ev.jednotka : ""}</span>
         )}
@@ -187,8 +196,17 @@ function PlannedRow({ ev, onSaved }) {
 
       {open && (
         <div className="plan-body">
+          {ev.odhadDopadu && (
+            <div className="plan-odhad">
+              <b>Můj odhad dopadu:</b> {ev.odhadDopadu}
+              {ev.zdrojVypisku && <span className="plan-zdroj">zdroj: {ev.zdrojVypisku}</span>}
+              <div className="plan-odhad-note">
+                Rozhodnutí je na tobě — vyber dopad níž. Tohle je jen návrh.
+              </div>
+            </div>
+          )}
           <div className="fgrid">
-            <div className="f"><label>Aktuální hodnota</label>
+            <div className="f"><label>Aktuální hodnota (YoY)</label>
               <input type="number" step="any" value={f.aktual} autoFocus
                      onChange={(e) => set("aktual", e.target.value)} placeholder="co vyšlo" /></div>
             <div className="f"><label>Jednotka</label>
@@ -196,12 +214,26 @@ function PlannedRow({ ev, onSaved }) {
                 <option value="">neuvedeno</option>
                 {JEDNOTKY.map((u) => <option key={u} value={u}>{u}</option>)}
               </select></div>
-            <div className="f"><label>Očekávání</label>
+            <div className="f"><label>Očekávání (YoY)</label>
               <input type="number" step="any" value={f.ocekavani}
                      onChange={(e) => set("ocekavani", e.target.value)} /></div>
             <div className="f"><label>Předchozí</label>
               <input type="number" step="any" value={f.predchozi}
                      onChange={(e) => set("predchozi", e.target.value)} /></div>
+
+            <div className="f wide mom-hlavicka">
+              Meziměsíčně (MoM) — vyplň, jen když ukazatel vychází i v téhle podobě.
+              Popis piš jeden společný pro obě čísla, nezakládej druhou událost.
+            </div>
+            <div className="f"><label>Aktuální MoM</label>
+              <input type="number" step="any" value={f.aktualMoM}
+                     onChange={(e) => set("aktualMoM", e.target.value)} /></div>
+            <div className="f"><label>Očekávání MoM</label>
+              <input type="number" step="any" value={f.ocekavaniMoM}
+                     onChange={(e) => set("ocekavaniMoM", e.target.value)} /></div>
+            <div className="f"><label>Předchozí MoM</label>
+              <input type="number" step="any" value={f.predchoziMoM}
+                     onChange={(e) => set("predchoziMoM", e.target.value)} /></div>
             <div className="f wide">
               <label>Dopad na měnu</label>
               <div className="seg">

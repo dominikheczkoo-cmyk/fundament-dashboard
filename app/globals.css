@@ -331,3 +331,23 @@ tr.note-row:hover td { background: #faf9f7; }
 }
 .focus-reason.r-fund span:last-child, .focus-reason.r-kat span:last-child { white-space: pre-line; }
 .focus-reason.r-sance .focus-tag { color: var(--accent); }
+.plan-cas {
+  flex: none; min-width: 42px; font-size: 12.5px; font-weight: 650;
+  color: var(--ink-2); font-variant-numeric: tabular-nums;
+}
+.plan.upcoming .plan-cas { color: var(--ink-3); }
+.plan-typ {
+  flex: none; font-size: 11px; font-weight: 650; padding: 2px 7px; border-radius: 5px;
+  background: var(--neu-bg); color: var(--neu); text-transform: lowercase;
+}
+.plan-odhad {
+  background: var(--none-bg); border-left: 3px solid var(--accent);
+  border-radius: 8px; padding: 10px 12px; margin-bottom: 14px;
+  font-size: 13px; color: var(--ink-2); line-height: 1.55;
+}
+.plan-zdroj { margin-left: 8px; font-size: 11.5px; color: var(--ink-3); }
+.plan-odhad-note { margin-top: 6px; font-size: 11.5px; color: var(--ink-3); }
+.mom-hlavicka {
+  font-size: 12px; color: var(--ink-3); border-top: 1px solid var(--line);
+  padding-top: 12px; margin-top: 4px; line-height: 1.5;
+}

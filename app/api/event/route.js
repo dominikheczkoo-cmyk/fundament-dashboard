@@ -53,6 +53,13 @@ function buildProps(b, { requireInfo = true } = {}) {
   if (o !== undefined && !isNaN(o)) props.OČEKÁVÁNÍ = { number: o };
   if (p !== undefined && !isNaN(p)) props.PŘEDCHOZÍ = { number: p };
 
+  // Meziměsíční čísla patří ke stejné události jako meziroční — jeden záznam,
+  // jeden popis, dvě sady hodnot.
+  const aM = num(b.aktualMoM), oM = num(b.ocekavaniMoM), pM = num(b.predchoziMoM);
+  if (aM !== undefined && !isNaN(aM)) props["AKTUÁL MoM"] = { number: aM };
+  if (oM !== undefined && !isNaN(oM)) props["OČEKÁVÁNÍ MoM"] = { number: oM };
+  if (pM !== undefined && !isNaN(pM)) props["PŘEDCHOZÍ MoM"] = { number: pM };
+
   return props;
 }
 
