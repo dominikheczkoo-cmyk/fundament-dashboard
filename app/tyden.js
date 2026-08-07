@@ -10,23 +10,26 @@ import { FLAG, CUR_NAME, JEDNOTKY, czDate, denVTydnu, filled, cas, seance } from
 //  2. má krátký název z Forex Factory ("Core CPI Flash Estimate y/y")
 // Ručně psaná poznámka bývá bez kategorie nebo s dlouhým popisem, takže sem nespadne
 // a nebude se tvářit jako nedodělaná práce.
-const KOSTRA_MAX_DELKA = 90;
-const jeKostra = (e) =>
-  !!(e.kategorie && String(e.kategorie).trim()) &&
-  String(e.info || "").trim().length <= KOSTRA_MAX_DELKA;
-
 // Kategorie, kde se nic nevyhodnocuje — nemá smysl je nabízet k doplnění.
 const NEVYHODNOCUJE_SE = ["BANK HOLIDAY"];
 
 /* Kdy je událost hotová.
-   Dřív se to poznávalo jen podle čísla v AKTUÁL, jenže spousta událostí
-   žádné číslo nemá — projevy, tiskové konference, breaking news, svátky.
-   Ty by svítily „doplnit" napořád. Za hotovou proto bereme událost,
-   která má číslo NEBO dopad na měnu NEBO vlastní popis místo názvu z kalendáře. */
-const jeHotova = (e) =>
-  e.aktual !== null ||
-  !!(e.verdict && String(e.verdict).trim()) ||
-  String(e.info || "").trim().length > KOSTRA_MAX_DELKA;
+   Dřív se to poznávalo podle délky popisu — což fungovalo, dokud popisy psal
+   jen uživatel. Jakmile je začala psát naplánovaná úloha, událost po doplnění
+   textu okamžitě zmizela ze seznamu a uživatel neměl šanci ji schválit.
+
+   Teď platí jediné pravidlo: **hotová je událost, které uživatel dal VÝSLEDEK.**
+   Číslo ani text ji ze seznamu neodstraní — ty jsou jen příprava. */
+const jeHotova = (e) => !!(e.verdict && String(e.verdict).trim());
+
+// Událost patří do seznamu, když má kategorii a něco se u ní vyhodnocuje.
+const kVyrizeni = (e) =>
+  !!(e.kategorie && String(e.kategorie).trim()) &&
+  !NEVYHODNOCUJE_SE.includes(String(e.kategorie || "").toUpperCase());
+
+// Podklady už někdo připravil — buď úloha, nebo uživatel. Stačí schválit dopad.
+const jePripravena = (e) =>
+  e.aktual !== null || e.aktualMoM !== null || !!(e.odhadDopadu || "").trim();
 
 export function Tyden({ events, onSaved }) {
   // "dnes" se počítá při každém načtení stránky, takže se seznam posouvá sám
@@ -34,20 +37,19 @@ export function Tyden({ events, onSaved }) {
   const zaDvaTydny = new Date(Date.now() + 15 * 864e5).toISOString().slice(0, 10);
   const predTydnem = new Date(Date.now() - 8 * 864e5).toISOString().slice(0, 10);
 
-  // Jen nevyplněné kostry z kalendáře. Vlastnoručně psané záznamy sem nepatří,
-  // i když nemají číslo v poli AKTUÁL — text v nich je hotová práce.
-  const bezHodnoty = events.filter(
-    (e) =>
-      e.date &&
-      jeKostra(e) &&
-      !jeHotova(e) &&
-      !NEVYHODNOCUJE_SE.includes(String(e.kategorie || "").toUpperCase())
-  );
+  // Všechno, co ještě čeká na tvůj verdikt.
+  const bezHodnoty = events.filter((e) => e.date && kVyrizeni(e) && !jeHotova(e));
 
   // K doplnění: událost už proběhla (nebo je dnes), ale ne dál než týden zpátky.
+  // Nahoře jsou ty, kde už jsou podklady připravené — u nich stačí kliknout.
   const kDoplneni = bezHodnoty
     .filter((e) => e.date.slice(0, 10) <= dnes && e.date.slice(0, 10) >= predTydnem)
-    .sort((a, b) => String(b.date).localeCompare(String(a.date)));  // nejnovější nahoře
+    .sort((a, b) => {
+      const rozdil = Number(jePripravena(b)) - Number(jePripravena(a));
+      return rozdil !== 0 ? rozdil : String(b.date).localeCompare(String(a.date));
+    });
+
+  const pripravenych = kDoplneni.filter(jePripravena).length;
 
   // Chystá se: teprve přijde. Jen na přehled, nedá se vyplnit.
   const chystaSe = bezHodnoty
@@ -68,15 +70,19 @@ export function Tyden({ events, onSaved }) {
 
   return (
     <>
-      <h3 className="sec-title">K doplnění</h3>
+      <h3 className="sec-title">Čeká na tvůj verdikt</h3>
       <p className="sub" style={{ marginBottom: 14 }}>
-        Události, které už proběhly a čekají na hodnotu. Vyplň a uloží se do stejného
-        záznamu v Notionu — novou událost zakládat nemusíš.
+        Události, které už proběhly. <b>Ze seznamu zmizí, až jim dáš dopad na měnu</b> —
+        číslo ani popis je neodstraní, takže o nic nepřijdeš.
+        {pripravenych > 0 && (
+          <> U <b>{pripravenych}</b> {pripravenych === 1 ? "události jsou" : "událostí jsou"} podklady
+          připravené, stačí potvrdit dopad.</>
+        )}
       </p>
 
       {!kDoplneni.length ? (
         <div className="note-box" style={{ textAlign: "left", marginBottom: 26 }}>
-          Nic nečeká na doplnění. Všechny proběhlé události mají vyplněnou hodnotu.
+          Nic nečeká. Všechny proběhlé události mají vyplněný dopad na měnu.
         </div>
       ) : (
         Object.keys(dnyDoplnit).sort().reverse().map((d) => (
@@ -134,12 +140,16 @@ function UpcomingRow({ ev }) {
 
 function PlannedRow({ ev, onSaved }) {
   const [open, setOpen] = useState(false);
+  // Předvyplní se tím, co už v Notionu je — včetně toho, co připravila
+  // naplánovaná úloha. Nic se nepřepisuje naprázdno.
   const [f, setF] = useState({
-    aktual: "", info: ev.info || "", verdict: ev.verdict || null,
+    aktual: ev.aktual ?? "", info: ev.info || "", verdict: ev.verdict || null,
     jednotka: ev.jednotka || "", predchozi: ev.predchozi ?? "",
     ocekavani: ev.ocekavani ?? "",
-    aktualMoM: "", ocekavaniMoM: ev.ocekavaniMoM ?? "", predchoziMoM: ev.predchoziMoM ?? "",
+    aktualMoM: ev.aktualMoM ?? "", ocekavaniMoM: ev.ocekavaniMoM ?? "",
+    predchoziMoM: ev.predchoziMoM ?? "",
   });
+  const pripravena = jePripravena(ev);
   const [status, setStatus] = useState({ msg: "", kind: "" });
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
@@ -157,6 +167,10 @@ function PlannedRow({ ev, onSaved }) {
         msg: "Zatím není co uložit — doplň hodnotu, dopad na měnu nebo popis.",
         kind: "bad",
       });
+    }
+    // Bez dopadu na měnu událost ze seznamu nezmizí — ať je jasné proč.
+    if (!f.verdict) {
+      setStatus({ msg: "Ukládám… (bez dopadu zůstane v seznamu)", kind: "" });
     }
     setBusy(true);
     setStatus({ msg: "Ukládám…", kind: "" });
@@ -191,7 +205,9 @@ function PlannedRow({ ev, onSaved }) {
           <span className="plan-ocek">oček. {ev.ocekavani}{ev.jednotka ? " " + ev.jednotka : ""}</span>
         )}
         {ev.dopad && <span className={"plan-dopad d-" + ev.dopad.replace(/[^a-z]/gi, "")}>{ev.dopad}</span>}
-        <span className="plan-fill">doplnit</span>
+        <span className={"plan-fill" + (pripravena ? " hotovo" : "")}>
+          {pripravena ? "schválit dopad" : "doplnit"}
+        </span>
       </button>
 
       {open && (

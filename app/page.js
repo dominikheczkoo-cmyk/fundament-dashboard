@@ -8,7 +8,6 @@ import {
 } from "./lib-ui";
 import { LineChart, BarChart, fmt } from "./chart";
 import { Tyden } from "./tyden";
-import { Focus, repricingPodleMen } from "./focus";
 
 export default function Page() {
   const [data, setData] = useState(null);
@@ -93,7 +92,7 @@ export default function Page() {
         <>
           <Strip data={data} onPick={(c) => { setTab("prehled"); setOpen(c); }} />
           <nav className="tabs">
-            {[["prehled","Přehled"],["focus","Kam mířit"],["tyden","Tento týden"],["grafy","Grafy"],["sazby","Sazby a sentiment"],["historie","Historie týdnů"],["udalosti","Události"],["zadat","+ Zadat"]]
+            {[["prehled","Přehled"],["tyden","Tento týden"],["grafy","Grafy"],["sazby","Sazby a sentiment"],["historie","Historie týdnů"],["udalosti","Události"],["zadat","+ Zadat"]]
               .map(([k, label]) => (
                 <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{label}</button>
               ))}
@@ -106,10 +105,6 @@ export default function Page() {
                       lastEvent={lastEventByCur[open]}
                       onBack={() => setOpen(null)} />
             : <Cards rows={data.overview} onOpen={setOpen} lastEvent={lastEventByCur} />)}
-          {tab === "focus" && <Focus rates={data.rates || []} events={data.events || []}
-                                     positions={data.positions || []} focus={data.focus || []}
-                                     overview={data.overview || []} weeks={data.weeks || []}
-                                     onSaved={load} />}
           {tab === "tyden" && <Tyden events={data.events} onSaved={load} />}
           {tab === "grafy" && <Charts events={data.events} rates={data.rates || []} positions={data.positions || []} />}
           {tab === "sazby" && <Rates rates={data.rates || []} positions={data.positions || []} />}
@@ -195,10 +190,46 @@ export function latestPerCur(rows) {
   return Object.values(best);
 }
 
+/* Najde předchozí ocenění sazeb pro každou měnu. Slouží jen k tomu,
+   aby v tabulce bylo vidět, o kolik se to od minula pohnulo — nic se
+   z toho dál nepočítá. */
+function predchoziOceneni(rates) {
+  const dnes = new Date().toISOString().slice(0, 10);
+  const podle = {};
+  rates.forEach((r) => {
+    const klic = r.poradi || r.date;
+    if (!r.cur || !klic || r.bps === null || r.bps === undefined) return;
+    if (String(klic).slice(0, 10) > dnes) return;
+    (podle[r.cur] = podle[r.cur] || []).push({ ...r, klic });
+  });
+  const out = {};
+  Object.entries(podle).forEach(([cur, list]) => {
+    list.sort((a, b) => String(b.klic).localeCompare(String(a.klic)));
+    if (list.length < 2) return;
+    const [ted, drive] = list;
+    const dnu = Math.round(
+      (new Date(ted.klic).getTime() - new Date(drive.klic).getTime()) / 864e5
+    );
+    const sanceDelta =
+      ted.sanceZvyseni !== null && ted.sanceZvyseni !== undefined &&
+      drive.sanceZvyseni !== null && drive.sanceZvyseni !== undefined
+        ? Math.round((ted.sanceZvyseni - drive.sanceZvyseni) * 1000) / 10
+        : null;
+    out[cur] = {
+      delta: Math.round((ted.bps - drive.bps) * 10) / 10,
+      z: drive.bps, na: ted.bps,
+      odKdy: drive.klic, doKdy: ted.klic, dnu,
+      tydenni: dnu > 0 && dnu <= 10,
+      sanceDelta, sanceZ: drive.sanceZvyseni, sanceNa: ted.sanceZvyseni,
+    };
+  });
+  return out;
+}
+
 function Rates({ rates, positions }) {
   const [openRow, setOpenRow] = useState(null);
-  // stejný výpočet, jaký pohání záložku „Kam mířit" — ať čísla souhlasí
-  const prev = repricingPodleMen(rates);
+  // předchozí ocenění pro každou měnu, ať je vidět, kam se to pohnulo
+  const prev = predchoziOceneni(rates);
   const sorted = latestPerCur(rates).sort((a, b) => (b.ocekavani ?? -9) - (a.ocekavani ?? -9));
   const posLatest = latestPerCur(positions);
   const posSorted = [...posLatest].sort((a, b) => (b.spread ?? -1e9) - (a.spread ?? -1e9));

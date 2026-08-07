@@ -19,7 +19,7 @@ function parseNum(s) {
 
 export async function GET() {
   try {
-    const [celkovy, weekly, fundament, sazby, sentiment, focusRows] = await Promise.all([
+    const [celkovy, weekly, fundament, sazby, sentiment] = await Promise.all([
       queryDatabase(DB.CELKOVY),
       queryDatabase(DB.WEEKLY, {
         sorts: [{ property: "DATUM", direction: "descending" }],
@@ -29,10 +29,6 @@ export async function GET() {
       }),
       queryDatabase(DB.SAZBY),
       queryDatabase(DB.SENTIMENT),
-      // historie doporučení se může tvářit jako prázdná, dokud nic neuložíš
-      queryDatabase(DB.FOCUS, {
-        sorts: [{ property: "DATUM", direction: "descending" }],
-      }).catch(() => []),
     ]);
 
     const overview = celkovy.map((p) => {
@@ -160,27 +156,7 @@ export async function GET() {
       };
     }).filter((r) => r.cur);
 
-    const focus = focusRows.map((p) => {
-      const P = p.properties;
-      return {
-        id: p.id,
-        par: val.title(P["PÁR"]),
-        date: val.date(P["DATUM"]),
-        poradi: val.number(P["POŘADÍ"]),
-        skore: val.number(P["SKÓRE"]),
-        smer: val.select(P["SMĚR"]),
-        biasBaze: val.number(P["BIAS BÁZE"]),
-        biasKvot: val.number(P["BIAS KVÓTOVANÉ"]),
-        divergence: val.number(P["DIVERGENCE"]),
-        katalyzator: val.number(P["KATALYZÁTORY"]),
-        repricing: val.text(P["REPRICING"]),
-        duvod: val.text(P["DŮVOD"]),
-        vysledek: val.select(P["VÝSLEDEK"]),
-        poznamka: val.text(P["POZNÁMKA"]),
-      };
-    });
-
-    return Response.json({ overview, weeks, events, rates, positions, focus, sections: SECTIONS });
+    return Response.json({ overview, weeks, events, rates, positions, sections: SECTIONS });
   } catch (e) {
     return Response.json({ error: e.message }, { status: 500 });
   }

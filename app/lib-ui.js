@@ -51,12 +51,12 @@ export const JEDNOTKY = ["%", "body", "tis.", "mld.", "index", "bps", "jiné"];
 export const KAT_VAHA = {
   "PRESS CONFERENCE": 12, "INTEREST RATE": 10, FOMC: 8, SPEAK: 3,
   CPI: 10, "CORE CPI": 10, PCE: 8, "TOKYO CPI": 6, "TOKYO CORE CPI": 6,
-  PPI: 5, "CORE PPI": 5,
+  PPI: 4, "CORE PPI": 4,
   "NONFARM PAYROLLS": 10, "UNEMPLOYMENT RATE": 7, "EMPLOYMENT CHANGE": 6,
   "ADP NFP": 5, "ADP EMPLOYMENT CHANGE": 4, "UNEMPLOYMENT CHANGE": 4,
   JOLTS: 4, "INITIAL JOBLESS CLAIMS": 3,
-  GDP: 8, "RETAIL SALES": 6, "CORE RETAIL SALES": 5, PMI: 5, "CONSUMER CONFIDENCE": 3,
-  "BUILDING PERMITS": 3, "HOUSING STARTS": 3, "NEW HOME SALES": 3, "EXISTING HOME SALES": 3,
+  GDP: 5, "RETAIL SALES": 4, "CORE RETAIL SALES": 3, PMI: 4, "CONSUMER CONFIDENCE": 2,
+  "BUILDING PERMITS": 2, "HOUSING STARTS": 2, "NEW HOME SALES": 2, "EXISTING HOME SALES": 2,
   "BREAKING NEWS": 8, ELECTION: 6, "OTHER NEWS": 1, "BANK HOLIDAY": 0,
 };
 export const vahaKat = (k) => (k && KAT_VAHA[k] !== undefined ? KAT_VAHA[k] : 3);
@@ -77,6 +77,10 @@ export const PODSTATNE = [
   // PCE je inflační ukazatel, který Fed preferuje před CPI — počítá se,
   // i když v SHRNUTÍ celkového přehledu vlastní sekci nemá.
   "PCE",
+  // PMI, PPI, HDP a maloobchod počítají mentoři taky a dávají jim verdikty.
+  // Počítají se proto i tady, ale s výrazně nižší vahou než sazby a inflace.
+  "PMI", "PPI", "CORE PPI", "GDP", "RETAIL SALES", "CORE RETAIL SALES",
+  "CONSUMER CONFIDENCE",
   "UNEMPLOYMENT RATE", "UNEMPLOYMENT CHANGE", "EMPLOYMENT CHANGE",
   "NONFARM PAYROLLS", "ADP NFP", "ADP EMPLOYMENT CHANGE",
   "INITIAL JOBLESS CLAIMS", "JOLTS",
@@ -104,13 +108,10 @@ export function platiProMenu(kat, cur) {
    (PPI mluví o inflačních tlacích, HDP o ekonomice), teprve pak se hledá
    to podstatné. Vrací null, když si nejsme jistí. */
 const VZORY_NEPODSTATNE = [
-  /\bPMI\b|nákupních manažerů/i,
-  /\bPPI\b|ceny výrobců|cen výrobců/i,
-  /\bHDP\b|\bGDP\b|hrubý domácí produkt/i,
-  /maloobchod|retail sales/i,
-  /spotřebitelsk[áé] důvěr|consumer confidence|consumer climate/i,
-  /stavebn[íi] povolen|housing starts|home sales|building permits/i,
-  /obchodní bilance|trade balance|průmyslov[áé] výrob/i,
+  // Zůstává jen to, co se opravdu nesleduje.
+  /obchodní bilance|trade balance/i,
+  /aukce dluhopis|bond auction/i,
+  /z[áa]soby ropy|crude oil inventories/i,
 ];
 // Pořadí = priorita. Konkrétnější témata musí být nad obecnějšími:
 // „žádosti o podporu v nezaměstnanosti" jsou jobless claims, ne míra
@@ -134,6 +135,14 @@ const VZORY_PODSTATNE = [
   [/zaměstnanost|employment change/i, "EMPLOYMENT CHANGE"],
   [/příměř|konflikt|válk|intervenc|útok|eskalac|sankc|demis|jadern/i, "BREAKING NEWS"],
   [/guvernér|prohlásil|projev|speaks|člen (rady|FOMC)/i, "SPEAK"],
+  // Doplňkové ukazatele — sledují se a mají verdikt, jen váží míň.
+  // Jsou až na konci, aby nepřebily konkrétnější témata výš.
+  [/\bPMI\b|nákupních manažerů/i, "PMI"],
+  [/\bPPI\b|ceny výrobců|cen výrobců|ceny průmyslových výrobců/i, "PPI"],
+  [/\bHDP\b|\bGDP\b|hrubý domácí produkt/i, "GDP"],
+  [/maloobchod|retail sales/i, "RETAIL SALES"],
+  [/spotřebitelsk[áé] důvěr|consumer confidence|consumer climate/i, "CONSUMER CONFIDENCE"],
+  [/stavebn[íi] povolen|housing starts|home sales|building permits/i, "BUILDING PERMITS"],
 ];
 
 export function odvodKategorii(info) {
@@ -167,10 +176,8 @@ export function kategorieUdalosti(e) {
 // Pořadí měn podle konvence kotace — dřívější je vždy základní (bázová).
 export const KOTACE = ["EUR", "GBP", "AUD", "NZD", "USD", "CAD", "CHF", "JPY"];
 
-// Provázané měny. Když se dvě měny hýbou spolu, rozdíl mezi nimi se hůř
-// obchoduje — jedna druhou dotahuje. Skóre páru se proto tlumí.
-// Zdroj: vlastní poznámky k fundamentu (USD+CAD ekonomicky provázané,
-// AUD+NZD geograficky a obchodně, zlato proti dolaru obráceně).
+// Provázané měny — zůstává jako informace do popisu páru, ale skóre už
+// netlumí. Mentoři s korelacemi při hodnocení nepracují, tak to nekomplikujeme.
 export const KORELACE = [
   { mena: ["USD", "CAD"], sila: 0.6 },
   { mena: ["AUD", "NZD"], sila: 0.8 },
