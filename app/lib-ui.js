@@ -36,7 +36,8 @@ export const KAT_GROUPS = [
   { label: "Sazby a centrální banky", items: ["INTEREST RATE", "PRESS CONFERENCE", "FOMC", "SPEAK"] },
   { label: "Inflace", items: ["CPI", "CORE CPI", "TOKYO CPI", "TOKYO CORE CPI", "PPI", "CORE PPI", "PCE"] },
   { label: "Trh práce", items: ["UNEMPLOYMENT RATE", "EMPLOYMENT CHANGE", "UNEMPLOYMENT CHANGE", "NONFARM PAYROLLS", "ADP NFP", "ADP EMPLOYMENT CHANGE", "INITIAL JOBLESS CLAIMS", "JOLTS"] },
-  { label: "Ekonomika", items: ["GDP", "PMI", "RETAIL SALES", "CORE RETAIL SALES", "CONSUMER CONFIDENCE"] },
+  { label: "PMI", items: ["MANUFACTURING PMI", "SERVICES PMI", "COMPOSITE PMI", "CONSTRUCTION PMI", "PMI"] },
+  { label: "Ekonomika", items: ["GDP", "RETAIL SALES", "CORE RETAIL SALES", "CONSUMER CONFIDENCE"] },
   { label: "Nemovitosti", items: ["BUILDING PERMITS", "HOUSING STARTS", "NEW HOME SALES", "EXISTING HOME SALES"] },
   { label: "Ostatní", items: ["BREAKING NEWS", "ELECTION", "BANK HOLIDAY", "OTHER NEWS"] },
 ];
@@ -55,7 +56,8 @@ export const KAT_VAHA = {
   "NONFARM PAYROLLS": 10, "UNEMPLOYMENT RATE": 7, "EMPLOYMENT CHANGE": 6,
   "ADP NFP": 5, "ADP EMPLOYMENT CHANGE": 4, "UNEMPLOYMENT CHANGE": 4,
   JOLTS: 4, "INITIAL JOBLESS CLAIMS": 3,
-  GDP: 5, "RETAIL SALES": 4, "CORE RETAIL SALES": 3, PMI: 4, "CONSUMER CONFIDENCE": 2,
+  GDP: 5, "RETAIL SALES": 4, "CORE RETAIL SALES": 3, "CONSUMER CONFIDENCE": 2,
+  "MANUFACTURING PMI": 4, "SERVICES PMI": 4, "COMPOSITE PMI": 4, "CONSTRUCTION PMI": 3, PMI: 4,
   "BUILDING PERMITS": 2, "HOUSING STARTS": 2, "NEW HOME SALES": 2, "EXISTING HOME SALES": 2,
   "BREAKING NEWS": 8, ELECTION: 6, "OTHER NEWS": 1, "BANK HOLIDAY": 0,
 };
@@ -79,7 +81,8 @@ export const PODSTATNE = [
   "PCE",
   // PMI, PPI, HDP a maloobchod počítají mentoři taky a dávají jim verdikty.
   // Počítají se proto i tady, ale s výrazně nižší vahou než sazby a inflace.
-  "PMI", "PPI", "CORE PPI", "GDP", "RETAIL SALES", "CORE RETAIL SALES",
+  "MANUFACTURING PMI", "SERVICES PMI", "COMPOSITE PMI", "CONSTRUCTION PMI", "PMI",
+  "PPI", "CORE PPI", "GDP", "RETAIL SALES", "CORE RETAIL SALES",
   "CONSUMER CONFIDENCE",
   "UNEMPLOYMENT RATE", "UNEMPLOYMENT CHANGE", "EMPLOYMENT CHANGE",
   "NONFARM PAYROLLS", "ADP NFP", "ADP EMPLOYMENT CHANGE",
@@ -137,7 +140,13 @@ const VZORY_PODSTATNE = [
   [/guvernér|prohlásil|projev|speaks|člen (rady|FOMC)/i, "SPEAK"],
   // Doplňkové ukazatele — sledují se a mají verdikt, jen váží míň.
   // Jsou až na konci, aby nepřebily konkrétnější témata výš.
-  [/\bPMI\b|nákupních manažerů/i, "PMI"],
+  // Druh PMI se pozná dřív než obecné „PMI" — stavební, služby a výroba
+  // jsou nad kompozitním, protože ten se v textu často zmiňuje jen mimochodem.
+  [/stavebn\S*\s*(sektor|PMI)|construction PMI/i, "CONSTRUCTION PMI"],
+  [/sektor\S*\s*slu\u017eeb|PMI ve slu\u017eb|services PMI/i, "SERVICES PMI"],
+  [/v\u00fdrobn\S*\s*(sektor|PMI)|zpracovatelsk|manufacturing PMI/i, "MANUFACTURING PMI"],
+  [/composite|kompozitn|souhrnn\S*\s*PMI/i, "COMPOSITE PMI"],
+  [/\bPMI\b|n\u00e1kupn\u00edch mana\u017eer\u016f/i, "PMI"],
   [/\bPPI\b|ceny výrobců|cen výrobců|ceny průmyslových výrobců/i, "PPI"],
   [/\bHDP\b|\bGDP\b|hrubý domácí produkt/i, "GDP"],
   [/maloobchod|retail sales/i, "RETAIL SALES"],
